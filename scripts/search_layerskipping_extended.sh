@@ -1,0 +1,23 @@
+python3 cnas.py \
+    --sec_obj avg_macs \
+    --n_workers 4 \
+    --seed 1 \
+    --data datasets/cifar100 \
+    --dataset cifar100 \
+    --n_classes 100 \
+    --first_predictor as \
+    --sec_predictor as \
+    --supernet_path NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 \
+    --pretrained \
+    --save results/search_layerskippingextended_datasetcifar100_seed1 \
+    --iterations 30 \
+    --search_space skippingmobilenetv3_extended \
+    --trainer_type layer_skipping \
+    --method joint \
+    --val_split 0.1 \
+    --n_epochs 0 \
+    --gate_training_epochs 10 \
+    --lr 64 \
+    --ur 96 \
+    --rstep 4 \
+    --gpu_list 0 1

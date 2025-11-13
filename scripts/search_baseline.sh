@@ -1,0 +1,18 @@
+python3 cnas.py \
+    --sec_obj macs \
+    --n_gpus 2 \
+    --gpu 1 \
+    --n_workers 4 \
+    --n_epochs 10 \
+    --dataset cifar100 \
+    --n_classes 100 \
+    --data ~/datasets \
+    --first_predictor as \
+    --sec_predictor as \
+    --supernet_path NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 \
+    --pretrained \
+    --save ./results/cifar100-baseline \
+    --iterations 30 \
+    --val_split 0.1 \
+    --lr 64 \
+    --ur 96
