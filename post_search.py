@@ -228,32 +228,103 @@ def main(args):
         front = NonDominatedSorting().do(F, only_non_dominated_front=True)
         ps = np.array(subnets)[sort_idx][front]
         pf = F[front, :]
-        # choose the architectures with highest trade-off
-        dm = HighTradeoffPoints(n_survive=args.n)
-        I = dm.do(pf)
+        print(f"\nPareto front size: {len(pf)}")
+        
+        # Select diverse architectures using greedy diversity selection
+        if len(pf) <= args.n:
+            # If Pareto front is smaller than requested, take all
+            I = np.arange(len(pf))
+        else:
+            # Normalize objectives to same scale for distance calculation
+            pf_norm = (pf - pf.min(axis=0)) / (pf.max(axis=0) - pf.min(axis=0) + 1e-8)
+            
+            # Greedy selection: pick points that maximize minimum distance to already selected
+            I = []
+            # Start with the extreme points (best in each objective)
+            I.append(np.argmin(pf[:, 0]))  # Best first objective
+            if args.n > 1:
+                I.append(np.argmin(pf[:, 1]))  # Best second objective
+            
+            # Add remaining points by maximizing minimum distance
+            while len(I) < args.n:
+                max_min_dist = -1
+                best_idx = -1
+                for candidate in range(len(pf)):
+                    if candidate in I:
+                        continue
+                    # Calculate minimum distance to already selected points
+                    min_dist = min([np.linalg.norm(pf_norm[candidate] - pf_norm[selected]) 
+                                   for selected in I])
+                    if min_dist > max_min_dist:
+                        max_min_dist = min_dist
+                        best_idx = candidate
+                if best_idx != -1:
+                    I.append(best_idx)
+                else:
+                    break
+            
+            I = np.array(I)
+        
+        print(f"Selected {len(I)} diverse architectures spanning the Pareto front (requested: {args.n})")
 
     # Print feature analysis
     print_feature_analysis(archive, I, ps, pf=pf, args=args)
 
+    # Deduplicate selected architectures based on configuration
+    unique_configs = []
+    unique_indices = []
+    seen_configs = set()
+    seen_performance = set()  # Track exact performance duplicates only
+    
+    print(f"\n{'='*60}")
+    print(f"DEDUPLICATION PROCESS")
+    print(f"{'='*60}")
+    for i, idx in enumerate(I):
+        config = ps[idx]
+        config_str = json.dumps(config, sort_keys=True)
+        
+        # Create performance signature with more precision to only catch exact duplicates
+        perf_signature = (round(pf[idx, 0], 6), round(pf[idx, 1], 6))
+        
+        is_config_dup = config_str in seen_configs
+        is_perf_dup = perf_signature in seen_performance
+        
+        if not is_config_dup and not is_perf_dup:
+            seen_configs.add(config_str)
+            seen_performance.add(perf_signature)
+            unique_configs.append(config)
+            unique_indices.append(idx)
+            print(f"Architecture {i} (idx={idx}): UNIQUE - obj1={pf[idx,0]:.4f}, obj2={pf[idx,1]:.4f} (total unique: {len(unique_configs)})")
+        else:
+            dup_type = "config" if is_config_dup else "performance"
+            print(f"Architecture {i} (idx={idx}): DUPLICATE ({dup_type}) - obj1={pf[idx,0]:.4f}, obj2={pf[idx,1]:.4f} - skipping")
+    
+    print(f"\n{'='*60}")
+    print(f"SUMMARY: Selected {len(I)} architectures, {len(unique_configs)} unique after deduplication")
+    print(f"{'='*60}\n")
+    
+    if len(unique_configs) == 0:
+        print("ERROR: No unique configurations found! Exiting.")
+        return
+    
     # always add most accurate architectures
     #I = np.append(I, 0)
 
     # create the supernet
     #supernet = OFAEvaluator(n_classes = args.n_classes, model_path=args.supernet_path, pretrained = args.supernet_path)
 
-    for rank, idx in enumerate(I):
+    for rank, (idx, config) in enumerate(zip(unique_indices, unique_configs)):
 
         if(n_exits is not None):
-          save = os.path.join(args.save, "net-"+ prefer +"_"+str(idx)+"_nExits:"+str(args.n_exits))
+          save = os.path.join(args.save, "net-"+ prefer +"_"+str(rank)+"_nExits:"+str(args.n_exits))
         else:
           save = os.path.join(args.save, "net-"+ prefer +"_"+str(rank))
 
         os.makedirs(save, exist_ok=True)
-        config = ps[idx]
-        print("CONFIG: {}".format(config))
+        print("CONFIG {}: {}".format(rank, config))
 
         #subnet, _ = supernet.sample(config)
-        subnet_folder = get_subnet_folder(exp_path,config)
+        subnet_folder = get_subnet_folder(exp_path, config)
         shutil.rmtree(save, ignore_errors=True)
         shutil.copytree(subnet_folder, save)
         #n_subnet = subnet_folder.rsplit("_", 1)[1]

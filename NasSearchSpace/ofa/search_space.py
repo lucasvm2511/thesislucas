@@ -46,15 +46,15 @@ class OFAMobileNetV3SearchSpace:
             self.depth = [2, 3, 4]  # number of Inverted Residual Bottleneck layers repetition
             
             # Gate parameters
-            self.gate_hidden_sizes = [16, 32, 64]  # Hidden layer sizes
+            self.gate_hidden_size_options = [16, 32, 64]  # Hidden layer sizes
             self.target_sparsity_options = [0, 0.3, 0.5, 0.7]  # 0 = no gate, others = target sparsity
             
             # Max number of blocks that could have gates: sum(max_depth) = 20
             max_depth = self.depth[-1]  
             self.max_gatable_blocks = sum([max_depth] * self.num_blocks)
             
-            # Updated encoding length: 45 (base) + 1 (gate_hidden_size) + max_gatable_blocks (target_sparsities) + resolution
-            self.nvar = 45 + 1 + self.max_gatable_blocks + int(lr!=ur)
+            # Updated encoding length: 45 (base) + max_gatable_blocks (gate_hidden_sizes) + max_gatable_blocks (target_sparsities) + resolution
+            self.nvar = 45 + self.max_gatable_blocks + self.max_gatable_blocks + int(lr!=ur)
         else:
             raise NotImplementedError
 
@@ -125,7 +125,12 @@ class OFAMobileNetV3SearchSpace:
             elif (self.supernet == 'skippingmobilenetv3_extended'):
 
                 # Sample gate parameters
-                gate_hidden_size = int(np.random.choice(self.gate_hidden_sizes))
+                # Sample gate_hidden_sizes for each potential gatable block (length = max_gatable_blocks)
+                gate_hidden_sizes = np.random.choice(
+                    self.gate_hidden_size_options, 
+                    size=self.max_gatable_blocks, 
+                    replace=True
+                ).tolist()
                 
                 # Calculate actual number of blocks for this architecture
                 num_blocks_actual = int(np.sum(depth)) - 4  # Subtract 4 for edge blocks
@@ -141,14 +146,14 @@ class OFAMobileNetV3SearchSpace:
                 if self.fix_res:
                     data.append({
                         'ks': kernel_size, 'e': exp_ratio, 'd': depth,
-                        'gate_hidden_size': gate_hidden_size,
+                        'gate_hidden_sizes': gate_hidden_sizes,  # Array of length max_gatable_blocks
                         'target_sparsities': target_sparsities  # Array of length max_gatable_blocks
                     })
                 else:
                     resolution = int(np.random.choice(r))
                     data.append({
                         'ks': kernel_size, 'e': exp_ratio, 'd': depth, 'r': resolution,
-                        'gate_hidden_size': gate_hidden_size,
+                        'gate_hidden_sizes': gate_hidden_sizes,  # Array of length max_gatable_blocks
                         'target_sparsities': target_sparsities  # Array of length max_gatable_blocks
                     })
 
@@ -242,7 +247,11 @@ class OFAMobileNetV3SearchSpace:
         
         if (self.supernet == 'skippingmobilenetv3_extended'):
             # Encode the gate parameters
-            gate_hidden_size_idx = np.argwhere(config['gate_hidden_size'] == np.array(self.gate_hidden_sizes))[0, 0]
+            # Encode gate_hidden_sizes array (fixed length = max_gatable_blocks)
+            gate_hidden_size_indices = [
+                np.argwhere(ghs == np.array(self.gate_hidden_size_options))[0, 0] 
+                for ghs in config['gate_hidden_sizes']
+            ]
             
             # Encode target_sparsities array (fixed length = max_gatable_blocks)
             target_sparsity_indices = [
@@ -250,7 +259,7 @@ class OFAMobileNetV3SearchSpace:
                 for ts in config['target_sparsities']
             ]
             
-            x = x + [gate_hidden_size_idx] + target_sparsity_indices  # 1 + max_gatable_blocks elements
+            x = x + gate_hidden_size_indices + target_sparsity_indices  # max_gatable_blocks + max_gatable_blocks elements
         
         if not self.fix_res:
                 x.append(np.argwhere(config['r'] == np.array(self.resolution))[0, 0])
@@ -309,18 +318,29 @@ class OFAMobileNetV3SearchSpace:
         elif(self.supernet == 'skippingmobilenetv3_extended'):
             # Decode the gate parameters
             if self.fix_res:
-                gate_params_start = -(1 + self.max_gatable_blocks)  # gate_hidden_size + target_sparsities
+                gate_params_start = -(self.max_gatable_blocks + self.max_gatable_blocks)  # gate_hidden_sizes + target_sparsities
             else:
-                gate_params_start = -(1 + self.max_gatable_blocks + 1)  # + resolution
+                gate_params_start = -(self.max_gatable_blocks + self.max_gatable_blocks + 1)  # + resolution
             
-            gate_hidden_size = self.gate_hidden_sizes[x[gate_params_start]]
+            # Decode gate_hidden_sizes array (fixed length = max_gatable_blocks)
+            gate_hidden_size_start = gate_params_start
+            if gate_params_start < 0:
+                # Convert negative index to positive for slicing
+                gate_hidden_size_start_pos = len(x) + gate_params_start
+                gate_hidden_size_end_pos = gate_hidden_size_start_pos + self.max_gatable_blocks
+                gate_hidden_size_indices = x[gate_hidden_size_start_pos:gate_hidden_size_end_pos]
+            else:
+                gate_hidden_size_end = gate_hidden_size_start + self.max_gatable_blocks
+                gate_hidden_size_indices = x[gate_hidden_size_start:gate_hidden_size_end]
+            
+            gate_hidden_sizes = [self.gate_hidden_size_options[i] for i in gate_hidden_size_indices]
             
             # Decode target_sparsities array (fixed length = max_gatable_blocks)
-            target_sparsity_start = gate_params_start + 1
+            target_sparsity_start = gate_params_start + self.max_gatable_blocks
             # For negative indices, we need to handle carefully
             if gate_params_start < 0:
                 # Convert negative index to positive for slicing
-                target_sparsity_start_pos = len(x) + gate_params_start + 1
+                target_sparsity_start_pos = len(x) + gate_params_start + self.max_gatable_blocks
                 target_sparsity_end_pos = target_sparsity_start_pos + self.max_gatable_blocks
                 target_sparsity_indices = x[target_sparsity_start_pos:target_sparsity_end_pos]
             else:
@@ -332,13 +352,13 @@ class OFAMobileNetV3SearchSpace:
             if self.fix_res:
                 return {
                     'ks': kernel_size, 'e': exp_rate, 'd': depth,
-                    'gate_hidden_size': gate_hidden_size,
+                    'gate_hidden_sizes': gate_hidden_sizes,  # Array of ints (includes all gates)
                     'target_sparsities': target_sparsities  # Array of floats (includes 0s)
                 }
             else:
                 return {
                     'ks': kernel_size, 'e': exp_rate, 'd': depth, 'r': self.resolution[x[-1]],
-                    'gate_hidden_size': gate_hidden_size,
+                    'gate_hidden_sizes': gate_hidden_sizes,  # Array of ints (includes all gates)
                     'target_sparsities': target_sparsities  # Array of floats (includes 0s)
                 }
         else: 

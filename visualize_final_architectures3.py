@@ -55,16 +55,16 @@ def extract_metrics(stats_data):
     return macs, accuracy
 
 
-def scan_results_directory(results_dir):
+def scan_results_directory(results_dir, num_archs=30):
     """
-    Scan the results directory for all final architectures.
+    Scan the results directory for the last N architectures from the archive.
     Returns a dictionary organized by run type.
     """
     results_dir = Path(results_dir)
     all_results = defaultdict(list)
     
-    # Find all net.stats files in final directories
-    for stats_file in results_dir.rglob('final/*/net.stats'):
+    # Find all iter_*.stats files (archive files)
+    for stats_file in results_dir.glob('*/iter_*.stats'):
         # Extract run information from path
         parts = stats_file.parts
         
@@ -72,27 +72,47 @@ def scan_results_directory(results_dir):
         results_idx = parts.index('results')
         run_type = parts[results_idx + 1]
         
-
-        if run_type == 'tempweg':
-            continue
-        if run_type == 'old':
+        if run_type in ['tempweg', 'old']:
             continue
         
-        # Get trade-off index
-        tradeoff_dir = parts[-2]  # e.g., 'net-trade-off_0'
+        # Load stats file
+        try:
+            with open(stats_file, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"Error loading {stats_file}: {e}")
+            continue
         
-        # Load stats
-        stats = load_stats_file(stats_file)
-        macs, accuracy = extract_metrics(stats)
+        # Extract archive
+        if 'archive' not in data or not data['archive']:
+            continue
         
-        if macs is not None and accuracy is not None:
-            all_results[run_type].append({
-                'macs': macs,
-                'accuracy': accuracy,
-                'tradeoff': tradeoff_dir,
-                'path': str(stats_file),
-                'raw_data': stats
-            })
+        archive = data['archive']
+        # Get last num_archs architectures
+        last_archs = archive[-num_archs:] if len(archive) > num_archs else archive
+        
+        # Extract metrics from each architecture
+        # Archive format: [[arch_dict, error_rate, macs], ...]
+        for idx, entry in enumerate(last_archs):
+            if len(entry) != 3:
+                continue
+            
+            arch_dict, error_rate, macs = entry
+            
+            # Convert error rate to accuracy
+            accuracy = 100.0 - error_rate
+            
+            # Normalize MACs
+            macs = normalize_macs_units(macs)
+            
+            if macs is not None and accuracy is not None:
+                all_results[run_type].append({
+                    'macs': macs,
+                    'accuracy': accuracy,
+                    'arch_idx': len(archive) - len(last_archs) + idx,
+                    'path': str(stats_file),
+                    'raw_data': {'arch': arch_dict, 'top1_acc': accuracy, 'macs': macs}
+                })
     
     return all_results
 
@@ -109,7 +129,7 @@ def format_dataset_label(dataset):
     return dataset.upper()
 
 
-def plot_comparison(all_results, output_dir=None, title="Architecture Comparison: MACs vs Accuracy", dataset_label=None):
+def plot_comparison(all_results, output_dir=None, title="Archive Architectures: MACs vs Accuracy", dataset_label=None):
     """Create comparison plots for all runs."""
     
     if not all_results:
@@ -127,7 +147,7 @@ def plot_comparison(all_results, output_dir=None, title="Architecture Comparison
         macs_vals = [r['macs'] for r in results]
         acc_vals = [r['accuracy'] for r in results]
         
-        # Sort by MACs for connected line
+        # Sort by MACs
         sorted_indices = np.argsort(macs_vals)
         macs_sorted = [macs_vals[i] for i in sorted_indices]
         acc_sorted = [acc_vals[i] for i in sorted_indices]
@@ -135,8 +155,8 @@ def plot_comparison(all_results, output_dir=None, title="Architecture Comparison
         # Clean run name for legend
         legend_name = run_name.replace('search_', '').replace('dataset', '').replace('_', ' ')
         
-        ax.plot(macs_sorted, acc_sorted, 'o-', label=legend_name, 
-                color=colors[idx], markersize=8, linewidth=2, alpha=0.7)
+        ax.scatter(macs_sorted, acc_sorted, label=legend_name,
+               color=colors[idx], s=60, alpha=0.7, edgecolors='none')
     
     ax.set_xlabel('MACs (Millions)', fontsize=12)
     ax.set_ylabel('Top-1 Accuracy (%)', fontsize=12)
@@ -162,34 +182,21 @@ def plot_comparison(all_results, output_dir=None, title="Architecture Comparison
 
 
 def plot_individual_runs(all_results, output_dir=None, dataset_label=None):
-    """Create individual plots for each run showing trade-off curve."""
+    """Create individual plots for each run showing archive architectures."""
     
     for run_name, results in sorted(all_results.items()):
         fig, ax = plt.subplots(figsize=(10, 6))
         
         macs_vals = [r['macs'] for r in results]
         acc_vals = [r['accuracy'] for r in results]
-        tradeoff_labels = [r['tradeoff'] for r in results]
         
         # Sort by MACs
         sorted_indices = np.argsort(macs_vals)
         macs_sorted = [macs_vals[i] for i in sorted_indices]
         acc_sorted = [acc_vals[i] for i in sorted_indices]
-        labels_sorted = [tradeoff_labels[i] for i in sorted_indices]
         
-        # Plot with labels
-        ax.plot(macs_sorted, acc_sorted, 'o-', markersize=10, linewidth=2)
-        
-        # Add labels for each point
-        for i, label in enumerate(labels_sorted):
-            offset = 1 if i % 2 == 0 else -1
-            ax.annotate(label.replace('net-trade-off_', ''), 
-                       (macs_sorted[i], acc_sorted[i]),
-                       textcoords="offset points", 
-                       xytext=(0, offset*15),
-                       ha='center',
-                       fontsize=8,
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.5))
+        # Plot
+        ax.scatter(macs_sorted, acc_sorted, s=80, alpha=0.6)
         
         ax.set_xlabel('MACs (Millions)', fontsize=12)
         ax.set_ylabel('Top-1 Accuracy (%)', fontsize=12)
@@ -197,7 +204,7 @@ def plot_individual_runs(all_results, output_dir=None, dataset_label=None):
         clean_name = run_name.replace('search_', '').replace('dataset', '').replace('_', ' ')
         dataset_suffix = format_dataset_label(dataset_label)
         title_prefix = clean_name if dataset_suffix is None else f"{dataset_suffix} · {clean_name}"
-        ax.set_title(f'{title_prefix}: MACs vs Accuracy Trade-off', fontsize=14, fontweight='bold')
+        ax.set_title(f'{title_prefix}: Archive Architectures', fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
         
         if output_dir:
@@ -212,37 +219,27 @@ def plot_individual_runs(all_results, output_dir=None, dataset_label=None):
 def print_summary_table(all_results):
     """Print a summary table of all results."""
     print("\n" + "="*100)
-    print("SUMMARY OF FINAL ARCHITECTURES")
+    print("SUMMARY OF ARCHIVE ARCHITECTURES")
     print("="*100)
     
     for run_name, results in sorted(all_results.items()):
         print(f"\n{run_name}:")
-        print(f"{'Trade-off':<15} {'MACs (M)':<15} {'Accuracy (%)':<15} {'Params':<15}")
-        print("-" * 60)
+        print(f"Total architectures: {len(results)}")
         
-        # Sort by MACs
-        sorted_results = sorted(results, key=lambda x: x['macs'])
+        # Show statistics
+        macs_vals = [r['macs'] for r in results]
+        acc_vals = [r['accuracy'] for r in results]
         
-        for r in sorted_results:
-            tradeoff = r['tradeoff'].replace('net-trade-off_', '')
-            macs = r['macs']
-            acc = r['accuracy']
-            
-            # Try to get params
-            params = r['raw_data'].get('params', 'N/A')
-            if isinstance(params, (int, float)):
-                params_str = f"{params/1e6:.2f}M"
-            else:
-                params_str = str(params)
-            
-            print(f"{tradeoff:<15} {macs:<15.2f} {acc:<15.2f} {params_str:<15}")
+        print(f"MACs range: {min(macs_vals):.2f} - {max(macs_vals):.2f} M")
+        print(f"Accuracy range: {min(acc_vals):.2f}% - {max(acc_vals):.2f}%")
+        print(f"Mean accuracy: {np.mean(acc_vals):.2f}%")
     
     print("\n" + "="*100)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Visualize final architectures comparing MACs vs Accuracy'
+        description='Visualize archive architectures comparing MACs vs Accuracy'
     )
     parser.add_argument(
         '--results_dir',
@@ -268,6 +265,12 @@ def main():
         default='all',
         help='Filter results by dataset: cifar10, cifar100, or all (default: all)'
     )
+    parser.add_argument(
+        '--num_archs',
+        type=int,
+        default=30,
+        help='Number of architectures to load from the end of the archive (default: 30)'
+    )
     
     args = parser.parse_args()
     
@@ -276,7 +279,8 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Scanning results directory: {args.results_dir}")
-    all_results = scan_results_directory(args.results_dir)
+    print(f"Loading last {args.num_archs} architectures from each run's archive")
+    all_results = scan_results_directory(args.results_dir, num_archs=args.num_archs)
     
     # Filter out old results if not requested
     all_results = {k: v for k, v in all_results.items() if not k.startswith('old/')}

@@ -119,7 +119,7 @@ class SkippingMobileNetV3(nn.Module):
     in a truly input-dependent manner.
     """
 
-    def __init__(self, first_conv, blocks, depth, gate_type="stable", temperature=1.0, n_classes=None, enable_gates=True, gate_hidden_size=32, target_sparsities=None):
+    def __init__(self, first_conv, blocks, depth, gate_type="stable", temperature=1.0, n_classes=None, enable_gates=True, gate_hidden_sizes=None, target_sparsities=None):
         """
         Initialize Skipping MobileNetV3 model with per-block target sparsities controlling gate placement.
         
@@ -131,7 +131,7 @@ class SkippingMobileNetV3(nn.Module):
             temperature: Temperature parameter for gates
             n_classes: Number of classes for classification (if None, no classifier is added)
             enable_gates: Whether to enable gates
-            gate_hidden_size: Hidden layer size for gates (16, 32, or 64)
+            gate_hidden_sizes: Array of hidden layer sizes for gates (one per potential gate position)
             target_sparsities: Array of target sparsities per block (0 = no gate, 0.3/0.5/0.7 = sparsity target)
                               Length should be <= number of eligible blocks
         """
@@ -146,7 +146,7 @@ class SkippingMobileNetV3(nn.Module):
         self.enable_gates = enable_gates
         
         # Gate parameters
-        self.gate_hidden_size = gate_hidden_size
+        self.gate_hidden_sizes_config = gate_hidden_sizes if gate_hidden_sizes is not None else []
         self.target_sparsities_config = target_sparsities if target_sparsities is not None else []
         
         # Try to estimate the number of output channels from the last block
@@ -195,10 +195,13 @@ class SkippingMobileNetV3(nn.Module):
                 if target_sparsity == 0:
                     continue
                 
+                # Get hidden size for this gate (use default if not provided)
+                gate_hidden_size = self.gate_hidden_sizes_config[idx] if idx < len(self.gate_hidden_sizes_config) else 32
+                
                 try:
-                    # Create gate for this block
+                    # Create gate for this block with per-gate hidden size
                     if self.gate_type == "stable":
-                        gate = StableGate(in_ch, hidden=self.gate_hidden_size, temperature=temperature)
+                        gate = StableGate(in_ch, hidden=gate_hidden_size, temperature=temperature)
 
                     self.gates.append(gate)
                     self.gate_indices.append(block_idx)

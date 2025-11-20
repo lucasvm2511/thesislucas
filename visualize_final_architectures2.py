@@ -135,8 +135,8 @@ def plot_comparison(all_results, output_dir=None, title="Architecture Comparison
         # Clean run name for legend
         legend_name = run_name.replace('search_', '').replace('dataset', '').replace('_', ' ')
         
-        ax.plot(macs_sorted, acc_sorted, 'o-', label=legend_name, 
-                color=colors[idx], markersize=8, linewidth=2, alpha=0.7)
+        ax.scatter(macs_sorted, acc_sorted, label=legend_name,
+               color=colors[idx], s=60, alpha=0.7, edgecolors='none')
     
     ax.set_xlabel('MACs (Millions)', fontsize=12)
     ax.set_ylabel('Top-1 Accuracy (%)', fontsize=12)
@@ -178,7 +178,7 @@ def plot_individual_runs(all_results, output_dir=None, dataset_label=None):
         labels_sorted = [tradeoff_labels[i] for i in sorted_indices]
         
         # Plot with labels
-        ax.plot(macs_sorted, acc_sorted, 'o-', markersize=10, linewidth=2)
+        ax.scatter(macs_sorted, acc_sorted, s=80)
         
         # Add labels for each point
         for i, label in enumerate(labels_sorted):

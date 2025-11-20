@@ -167,14 +167,15 @@ if __name__ == "__main__":
         subnet_config = json.load(open(args.model_path))
         
         # Extract gate parameters if they exist (for extended version)
-        gate_hidden_size = subnet_config.get('gate_hidden_size', 32)  # Default to 32
-        target_sparsities = subnet_config.get('target_sparsities', [0.5] * 16)  # Default to list of 0.5s
+        gate_hidden_sizes = subnet_config.get('gate_hidden_sizes', [32] * 20)  # Default to array of 32s
+        target_sparsities = subnet_config.get('target_sparsities', [0.5] * 20)  # Default to list of 0.5s
         
         # Filter out zeros and count how many gates will be created
         num_gates_to_create = sum(1 for ts in target_sparsities if ts != 0)
         
-        logging.info(f"Using gate parameters: hidden_size={gate_hidden_size}")
-        logging.info(f"Target sparsities array (first 10): {target_sparsities[:10]}")
+        logging.info(f"Using gate parameters (arrays):")
+        logging.info(f"  Gate hidden sizes (first 10): {gate_hidden_sizes[:10]}")
+        logging.info(f"  Target sparsities (first 10): {target_sparsities[:10]}")
         logging.info(f"Number of gates to create (non-zero targets): {num_gates_to_create}")
     else:
         raise ValueError("Model path not provided or does not exist for skipping model.")
@@ -182,7 +183,7 @@ if __name__ == "__main__":
     backbone = get_skipping_mobilenetv3(subnet=backbone, subnet_path=args.model_path, res=res, n_classes=args.n_classes,
         gate_type='stable',  # Use specified gate type
         enable_gates=True,
-        gate_hidden_size=gate_hidden_size,
+        gate_hidden_sizes=gate_hidden_sizes,  # Pass array
         target_sparsities=target_sparsities)  # Pass array
 
     from ofa.utils.pytorch_utils import count_parameters
