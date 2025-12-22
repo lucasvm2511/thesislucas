@@ -5,10 +5,10 @@
 first_obj=top1
 sec_obj=avg_macs
 iter=30
-folder=results/search_layerskippingextended_datasetcifar10_seed1
 
 python3 post_search.py \
-  --get_archive --n 10 \
-  --save $folder/final \
-  --expr $folder/iter_$iter.stats \
+  --supernet_path ./NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 \
+  --get_archive --n 10 --n_classes 10 \
+  --save results/edanas_cifar10_10e_seed1/final \
+  --expr results/edanas_cifar10_10e_seed1/iter_$iter.stats \
   --first_obj $first_obj --sec_obj $sec_obj 

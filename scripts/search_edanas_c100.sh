@@ -11,11 +11,11 @@ img_size=32
 seed=1
 
 python3 cnas.py --sec_obj avg_macs \
-    --n_gpus 1 --gpu 1 --n_workers 4 --seed $seed \
+    --n_gpus 2 --gpu 1 --n_workers 4 --seed $seed \
     --data datasets/$dataset --dataset $dataset \
     --first_predictor as --sec_predictor as \
     --supernet_path NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 --pretrained \
-    --save results/search_edanas_dataset${dataset}_seed$seed --iterations 30 \
+    --save results/edanas_${dataset}_10e_seed$seed --iterations 30 \
     --search_space eemobilenetv3 --trainer_type multi_exits \
     --method joint --val_split $val_split \
     --n_epochs 0 --gate_training_epochs 10 \

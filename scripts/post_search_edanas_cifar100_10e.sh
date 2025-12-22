@@ -3,12 +3,12 @@
 # dataset=cifar10 (change num classes accordingly)
 
 first_obj=top1
-sec_obj=macs
+sec_obj=avg_macs
 iter=30
-folder=results/cifar10-baseline
 
 python3 post_search.py \
-  --get_archive --n 10 \
-  --save $folder/final \
-  --expr $folder/iter_$iter.stats \
+  --supernet_path ./NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 \
+  --get_archive --n 10 --n_classes 100 \
+  --save results/edanas_cifar100_10e_seed1/final \
+  --expr results/edanas_cifar100_10e_seed1/iter_$iter.stats \
   --first_obj $first_obj --sec_obj $sec_obj 

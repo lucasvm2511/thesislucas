@@ -85,7 +85,7 @@ if __name__ == "__main__":
     parser.add_argument('--supernet_path', type=str, default='./ofa_nets/ofa_mbv3_d234_e346_k357_w1.0', help='file path to supernet weights')
     parser.add_argument('--model_path', type=str, default=None, help='file path to subnet')
     parser.add_argument('--output_path', type=str, default=None, help='file path to save results')
-    parser.add_argument('--pretrained', action='store_true', default=False, help='use pretrained weights')
+    parser.add_argument('--pretrained', action='store_true', default=True, help='use pretrained weights')
     parser.add_argument('--eval_test', action='store_true', default=True, help='evaluate test accuracy')
     parser.add_argument('--eval_robust', action='store_true', default=False, help='evaluate robustness')    
     parser.add_argument("--sigma_min", default=0.05, type=float, help="min noise perturbation intensity")

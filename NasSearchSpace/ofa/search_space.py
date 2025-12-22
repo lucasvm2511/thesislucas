@@ -46,8 +46,8 @@ class OFAMobileNetV3SearchSpace:
             self.depth = [2, 3, 4]  # number of Inverted Residual Bottleneck layers repetition
             
             # Gate parameters
-            self.gate_hidden_size_options = [16, 32, 64]  # Hidden layer sizes
-            self.target_sparsity_options = [0, 0.3, 0.5, 0.7]  # 0 = no gate, others = target sparsity
+            self.gate_hidden_size_options = [16,32,64]#[16, 32, 64]  # Hidden layer sizes
+            self.target_sparsity_options = [0,0.5,0.6,0.7,0.8]#[0, 0.3, 0.5, 0.7]  # 0 = no gate, others = target sparsity
             
             # Max number of blocks that could have gates: sum(max_depth) = 20
             max_depth = self.depth[-1]  

@@ -40,13 +40,14 @@ if __name__ == "__main__":
     parser.add_argument('--supernet_path', type=str, default='./ofa_nets/ofa_mbv3_d234_e346_k357_w1.0', help='file path to supernet weights')
     parser.add_argument('--model_path', type=str, default=None, help='file path to subnet')
     parser.add_argument('--output_path', type=str, default=None, help='file path to save results')
-    parser.add_argument('--pretrained', action='store_true', default=False, help='use pretrained weights')
+    parser.add_argument('--pretrained', action='store_true', default=True, help='use pretrained weights')
     parser.add_argument('--mmax', type=float, default=1000, help='maximum number of MACS allowed')
     parser.add_argument('--top1min', type=float, default=0.0, help='minimum top1 accuracy allowed')
     parser.add_argument("--use_early_stopping", default=True, type=bool, help="True if you want to use early stopping.")
     parser.add_argument("--early_stopping_tolerance", default=5, type=int, help="Number of epochs to wait before early stopping.")
     parser.add_argument("--resolution", default=32, type=int, help="Image resolution.")
     parser.add_argument("--func_constr", action='store_true', default=False, help='use functional constraints')
+    parser.add_argument("--gate_type", type=str, default='attention', choices=['stable', 'conv', 'attention'], help='Type of gate to use (stable, conv, or attention)')
 
     # Training parameters
     parser.add_argument('--eval_test', action='store_true', default=True, help='evaluate test accuracy')
@@ -181,7 +182,7 @@ if __name__ == "__main__":
         raise ValueError("Model path not provided or does not exist for skipping model.")
     
     backbone = get_skipping_mobilenetv3(subnet=backbone, subnet_path=args.model_path, res=res, n_classes=args.n_classes,
-        gate_type='stable',  # Use specified gate type
+        gate_type=args.gate_type,  # Use gate type from command line
         enable_gates=True,
         gate_hidden_sizes=gate_hidden_sizes,  # Pass array
         target_sparsities=target_sparsities)  # Pass array
@@ -189,10 +190,48 @@ if __name__ == "__main__":
     from ofa.utils.pytorch_utils import count_parameters
     b_params = [count_parameters(backbone)]
     
-    # Calculate baseline MACs
+    # Calculate baseline MACs and gate overhead
     backbone.eval()
     backbone.to(device)
+    
+    # Calculate gate overhead MACs manually
+    gate_overhead_macs = 0.0
     if hasattr(backbone, 'gates') and len(backbone.gates) > 0:
+        # Manually estimate gate MACs based on architecture
+        for gate in backbone.gates:
+            gate_macs = 0.0
+            if hasattr(gate, 'in_ch'):
+                in_ch = gate.in_ch
+                hidden = 32  # Default hidden size
+                if hasattr(gate, 'fc1') and hasattr(gate.fc1, 'out_features'):
+                    hidden = gate.fc1.out_features
+                
+                # AdaptiveAvgPool: H*W*C operations
+                gate_macs += in_ch
+                
+                # FC1: in_ch * hidden
+                gate_macs += in_ch * hidden
+                
+                # FC2: hidden * 1
+                gate_macs += hidden * 1
+                
+                # For ConvGate: add conv layer
+                if hasattr(gate, 'conv'):
+                    gate_macs += in_ch * in_ch  # 1x1 conv
+                
+                # For AttentionGate: add channel and spatial attention
+                if hasattr(gate, 'channel_fc'):
+                    reduction = 16
+                    gate_macs += in_ch * (in_ch // reduction) + (in_ch // reduction) * in_ch  # Channel attention
+                    gate_macs += 2 * 1 * 7 * 7  # Spatial 7x7 conv on 2 channels
+                    gate_macs += (in_ch + 1) * hidden + hidden * 1  # Final FC
+            
+            gate_overhead_macs += gate_macs
+        
+        gate_overhead_macs = gate_overhead_macs / 1e6  # Convert to MMAC
+        logging.info(f"Gate overhead: {gate_overhead_macs:.4f}M MACs")
+        
+        # Calculate baseline MACs (all blocks executed)
         dummy_decisions = torch.ones(10, len(backbone.gates), device=device)
         _, _, baseline_macs, _ = backbone.calculate_macs_accurate(
             dummy_decisions, input_size=(3, res, res), device=device
@@ -205,8 +244,10 @@ if __name__ == "__main__":
     
     results['backbone_params'] = b_params
     results['backbone_macs'] = b_macs
+    results['gate_overhead_macs'] = gate_overhead_macs
 
     print("Backbone MACS: ", b_macs)
+    print("Gate overhead MACS: ", gate_overhead_macs)
     print("Backbone params: ", b_params)
 
     # Check if model is already trained
@@ -257,7 +298,12 @@ if __name__ == "__main__":
                 
                 # Determine training strategy 
                 warmup_phase = False
-                use_soft_gates = epoch % 2 == 0  # Use soft gates 50% of time
+                # If odd number of epochs, ensure last epoch uses hard gates (epoch 0-indexed)
+                # Otherwise alternate: even epochs = soft, odd epochs = hard
+                if epochs % 2 == 1:  # Odd number of epochs
+                    use_soft_gates = epoch % 2 == 0 and epoch < epochs - 1
+                else:  # Even number of epochs
+                    use_soft_gates = epoch % 2 == 0
                 
                 progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")
                 
@@ -287,9 +333,10 @@ if __name__ == "__main__":
                         
                         # Per-gate sparsity loss using individual targets
                         for gate_idx in range(gate_values.shape[1]):
-                            gate_sparsity = torch.mean(gate_values[:, gate_idx])
-                            target_sparsity = backbone.target_sparsities[gate_idx]  # Per-gate target
-                            sparsity_diff = gate_sparsity - target_sparsity
+                            gate_open_prob = torch.mean(gate_values[:, gate_idx])  # Fraction gate is OPEN
+                            target_sparsity = backbone.target_sparsities[gate_idx]  # Target fraction CLOSED
+                            target_open_prob = 1.0 - target_sparsity  # Convert to target OPEN probability
+                            sparsity_diff = gate_open_prob - target_open_prob
                             sparsity_loss += current_sparsity_weight * (sparsity_diff ** 2)
                         
                         # Add diversity loss to prevent gate collapse
@@ -397,17 +444,59 @@ if __name__ == "__main__":
     
     backbone.load_state_dict(backbone_dict)
 
+    # Save the trained model with gates
     if args.save:
-        torch.save(backbone.state_dict(), os.path.join(args.output_path, 'bb.pt'))
+        final_checkpoint_path = os.path.join(args.output_path, 'final_model.pt')
+        torch.save(backbone.state_dict(), final_checkpoint_path)
+        logging.info(f"Saved final trained model to {final_checkpoint_path}")
 
     # Evaluation
     logging.info("Evaluating skipping model...")
     
-    # Accuracy evaluation and gate decision collection
+    # Evaluation - compare gated vs non-gated predictions
+    logging.info("Evaluating skipping model...")
+    
+    # First pass: evaluate without gates (force all gates open)
+    logging.info("Evaluating baseline (all blocks executed)...")
     backbone.eval()
+    baseline_predictions = []
+    baseline_correct = []
+    all_targets = []
+    
+    # Temporarily disable gates by setting enable_gates=False
+    original_enable_gates = backbone.enable_gates
+    backbone.enable_gates = False
+    
+    with torch.no_grad():
+        for data, target in val_loader:
+            data, target = data.to(device), target.to(device)
+            output, _ = backbone(data, hard=True)
+            
+            _, predicted = output.max(1)
+            if target.dim() == 0:
+                target = target.unsqueeze(0)
+            
+            baseline_predictions.append(predicted.cpu())
+            baseline_correct.append(predicted.eq(target).cpu())
+            all_targets.append(target.cpu())
+    
+    # Restore gates
+    backbone.enable_gates = original_enable_gates
+    
+    baseline_predictions = torch.cat(baseline_predictions)
+    baseline_correct = torch.cat(baseline_correct)
+    all_targets = torch.cat(all_targets)
+    baseline_accuracy = baseline_correct.float().mean().item()
+    
+    logging.info(f"Baseline accuracy (no skipping): {baseline_accuracy*100:.2f}%")
+    
+    # Second pass: evaluate with gates
+    logging.info("Evaluating with gates...")
     correct = 0
     total = 0
     all_gate_decisions = []
+    gated_predictions = []
+    gated_correct = []
     
     with torch.no_grad():
         for data, target in val_loader:
@@ -421,12 +510,71 @@ if __name__ == "__main__":
             total += batch_size
             correct += predicted.eq(target).sum().item()
             
+            gated_predictions.append(predicted.cpu())
+            gated_correct.append(predicted.eq(target).cpu())
+            
             # Collect gate decisions for MAC calculation
             if aux and "gate_decisions" in aux and aux["gate_decisions"] is not None:
                 all_gate_decisions.append(aux["gate_decisions"])
     
+    gated_predictions = torch.cat(gated_predictions)
+    gated_correct = torch.cat(gated_correct)
+    
     accuracy = correct / total
     best_scores = {'global': accuracy}
+    
+    # Analyze gate performance using TP/TN/FP/FN metrics
+    # Collect gate decisions (whether blocks were skipped)
+    if all_gate_decisions:
+        all_decisions_tensor = torch.cat(all_gate_decisions, dim=0)  # (num_samples, num_gates)
+        # Average across all gates: 1 = execute (gate open), 0 = skip (gate closed)
+        # We consider a sample "skipped" if ANY gate closed (avg < 1.0)
+        gates_executed = (all_decisions_tensor.mean(dim=1).cpu() >= 0.99)  # True if all gates open (no skipping)
+        gate_skipped = ~gates_executed  # True if gate decided to skip
+    else:
+        # Fallback: assume no skipping occurred
+        gate_skipped = torch.zeros(total, dtype=torch.bool)
+    
+    # Determine which samples CAN skip (safe to skip) vs MUST use backbone (unsafe to skip)
+    # "Can skip" = samples where gated (with skipping) is correct
+    # "Must use backbone" = samples where gated (with skipping) is wrong
+    can_skip = gated_correct  # Skipping leads to correct prediction
+    must_use_backbone = ~gated_correct  # Skipping leads to wrong prediction
+    
+    # Calculate confusion matrix for gate decisions
+    # TP: Can skip AND gate said skip
+    tp = (can_skip & gate_skipped).sum().item()
+    # TN: Must use backbone AND gate said no skip
+    tn = (must_use_backbone & ~gate_skipped).sum().item()
+    # FP: Must use backbone BUT gate said skip (error: skipped when shouldn't)
+    fp = (must_use_backbone & gate_skipped).sum().item()
+    # FN: Can skip BUT gate said no skip (missed opportunity: didn't skip when could)
+    fn = (can_skip & ~gate_skipped).sum().item()
+    
+    # Samples where both baseline and gated are wrong (gate decision irrelevant)
+    both_wrong = (~baseline_correct) & (~gated_correct)
+    num_both_wrong = both_wrong.sum().item()
+    
+    # Samples where baseline was wrong but gating fixed it
+    fixed_by_skipping = (~baseline_correct) & gated_correct
+    num_fixed = fixed_by_skipping.sum().item()
+    
+    # Calculate derived metrics
+    evaluable = tp + tn + fp + fn
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    accuracy_gate = (tp + tn) / evaluable if evaluable > 0 else 0.0
+    
+    logging.info(f"Gate decision analysis (Confusion Matrix):")
+    logging.info(f"  TP (can skip, gate skipped): {tp} samples ({tp/total*100:.2f}%)")
+    logging.info(f"  TN (must use backbone, gate didn't skip): {tn} samples ({tn/total*100:.2f}%)")
+    logging.info(f"  FP (must use backbone, gate skipped): {fp} samples ({fp/total*100:.2f}%)")
+    logging.info(f"  FN (can skip, gate didn't skip): {fn} samples ({fn/total*100:.2f}%)")
+    logging.info(f"  Both wrong (gate irrelevant): {num_both_wrong} samples ({num_both_wrong/total*100:.2f}%)")
+    logging.info(f"  Fixed by skipping: {num_fixed} samples ({num_fixed/total*100:.2f}%)")
+    logging.info(f"  Gate Decision Accuracy: {accuracy_gate*100:.2f}%")
+    logging.info(f"  Precision: {precision*100:.2f}%, Recall: {recall*100:.2f}%, F1: {f1_score*100:.2f}%")
     
     # Calculate accurate MACs using gate decisions
     if all_gate_decisions:
@@ -451,6 +599,32 @@ if __name__ == "__main__":
     # results['branch_scores'] = best_scores
     results['params'] = (b_params[-1] if b_params else 0)
     results['macs'] = (b_macs[-1] if b_macs else 0)  # Baseline MACs (maximum possible)
+    
+    # Add detailed gate statistics
+    results['gate_stats'] = {
+        'sparsity_rate': float(sparsity_rate),
+        'mac_ratio': float(mac_ratio),
+        'mac_savings_percent': float(efficiency_percent),
+        'num_gates': len(backbone.gates) if hasattr(backbone, 'gates') else 0,
+        'gate_type': args.gate_type if hasattr(args, 'gate_type') else 'unknown',
+        'target_sparsities': backbone.target_sparsities.tolist() if hasattr(backbone, 'target_sparsities') else [],
+        'baseline_macs_M': float(baseline_macs / 1e6),
+        'gated_macs_M': float(real_gated_macs / 1e6),
+        'baseline_accuracy': float(baseline_accuracy),
+        'gated_accuracy': float(accuracy),
+        # Confusion matrix metrics for gate decisions
+        'tp_samples': int(tp),
+        'tn_samples': int(tn),
+        'fp_samples': int(fp),
+        'fn_samples': int(fn),
+        'evaluable_samples': int(evaluable),
+        'both_wrong_samples': int(num_both_wrong),
+        'fixed_by_skipping': int(num_fixed),
+        'gate_decision_accuracy': float(accuracy_gate),
+        'precision': float(precision),
+        'recall': float(recall),
+        'f1_score': float(f1_score)
+    }
     
     with open(save_path, 'w') as handle:
         json.dump(results, handle)

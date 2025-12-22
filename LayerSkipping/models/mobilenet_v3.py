@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 import os
 import sys
 from torchprofile import profile_macs
@@ -19,10 +20,36 @@ def get_block_channels(blk):
 
 
 class StableGate(nn.Module):
-    """Stable sigmoid-based gate with proper initialization and straight-through estimation."""
+    """Stable sigmoid-based gate with proper initialization and straight-through estimation.
     
-    def __init__(self, in_ch, hidden=32, temperature=1.0):
+    Supports dimension mismatches via learnable projection when in_ch != out_ch or stride != 1.
+    """
+    
+    def __init__(self, in_ch, out_ch=None, stride=1, hidden=32, temperature=1.0):
         super().__init__()
+        # If out_ch not specified, assume same as in_ch
+        if out_ch is None:
+            out_ch = in_ch
+        
+        self.in_ch = in_ch
+        self.out_ch = out_ch
+        self.stride = stride
+        self.has_projection = (in_ch != out_ch) or (stride != 1)
+        
+        # Convolutional layer for spatial feature processing
+        # COMMENTED OUT: This Conv2d is 90-95% of gate overhead (in_ch × in_ch × H × W)
+        # Pool already reduces to 1×1, so spatial processing gets thrown away anyway
+        # self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
+        # self.conv_bn = nn.BatchNorm2d(in_ch)
+        # self.conv_relu = nn.ReLU(inplace=True)
+        
+        # Projection layer to match dimensions when needed
+        if self.has_projection:
+            self.projection = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_ch)
+            )
+        
         # Smaller network to reduce overhead
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.flatten = nn.Flatten()
@@ -39,6 +66,13 @@ class StableGate(nn.Module):
         self._init_weights()
     
     def _init_weights(self):
+        # Initialize convolutional layer
+        # nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
+        
+        # Initialize projection layer if present
+        if self.has_projection:
+            nn.init.kaiming_normal_(self.projection[0].weight, mode='fan_out', nonlinearity='relu')
+        
         # Use smaller initialization to prevent saturation
         nn.init.normal_(self.fc1.weight, 0, 0.01)
         nn.init.constant_(self.fc1.bias, 0.0)
@@ -48,6 +82,14 @@ class StableGate(nn.Module):
     
     def forward(self, x, hard=True, return_logit=False):
         temperature = self.temperature
+        
+        # Store input for potential projection
+        identity = x
+        
+        # Apply convolutional layer
+        # x = self.conv(x)
+        # x = self.conv_bn(x)
+        # x = self.conv_relu(x)
         
         x = self.pool(x)
         x = self.flatten(x)
@@ -88,9 +130,203 @@ class StableGate(nn.Module):
             self.training_step += 1
         
         if return_logit:
-            return gate_value, prob, hard_decision, logit
-        return gate_value, prob, hard_decision
+            return gate_value, prob, hard_decision, logit, identity
+        return gate_value, prob, hard_decision, identity
 
+class ConvGate(nn.Module):
+    def __init__(self, in_ch, out_ch=None, stride=1, hidden=32, temperature=1.0):
+        super().__init__()
+
+        if out_ch is None:
+            out_ch = in_ch
+
+        self.in_ch = in_ch
+        self.out_ch = out_ch
+        self.stride = stride
+        self.has_projection = (in_ch != out_ch) or (stride != 1)
+        self.temperature = temperature
+
+        # --- Spatial processing block ----------------------------------------
+        # Lightweight conv path (reintroduced)
+        self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
+        self.conv_bn = nn.BatchNorm2d(in_ch)
+        self.conv_relu = nn.ReLU(inplace=True)
+
+        # --- Projection block -------------------------------------------------
+        if self.has_projection:
+            self.projection = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_ch)
+            )
+
+        # --- Gate head --------------------------------------------------------
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.flatten = nn.Flatten()
+
+        self.fc1 = nn.Linear(in_ch, hidden)
+        self.bn = nn.BatchNorm1d(hidden)
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout(0.1)
+        self.fc2 = nn.Linear(hidden, 1)
+
+        # counter
+        self.register_buffer("training_step", torch.tensor(0))
+
+        self._init_weights()
+
+    # ---------------------------------------------------------------------- #
+    def _init_weights(self):
+        nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
+
+        if self.has_projection:
+            nn.init.kaiming_normal_(self.projection[0].weight, mode='fan_out', nonlinearity='relu')
+
+        nn.init.normal_(self.fc1.weight, 0, 0.01)
+        nn.init.constant_(self.fc1.bias, 0.0)
+
+        nn.init.normal_(self.fc2.weight, 0, 0.01)
+        nn.init.constant_(self.fc2.bias, -0.7)  # moderately closed start
+
+    # ---------------------------------------------------------------------- #
+    def forward(self, x, hard=True, return_logit=False):
+        identity = x
+
+        # --- Conv feature transformation ------------------------------------
+        x = self.conv(x)
+        x = self.conv_bn(x)
+        x = self.conv_relu(x)
+
+        # --- Pool + MLP head -------------------------------------------------
+        x = self.pool(x)
+        x = self.flatten(x)
+        x = self.fc1(x)
+
+        # BN fallback for batch_size = 1
+        if x.size(0) > 1:
+            x = self.bn(x)
+        else:
+            if self.training:
+                rm = self.bn.running_mean
+                rv = self.bn.running_var
+                x = (x - rm) / torch.sqrt(rv + self.bn.eps)
+                x = x * self.bn.weight + self.bn.bias
+
+        x = self.relu(x)
+        x = self.dropout(x)
+        logit = self.fc2(x)
+
+        # temperature scaling
+        prob = torch.sigmoid(logit / self.temperature)
+
+        # straight-through binary gate
+        hard_decision = (prob > 0.5).float()
+        gate = hard_decision + prob - prob.detach() if hard else prob
+
+        if self.training:
+            self.training_step += 1
+
+        if return_logit:
+            return gate, prob, hard_decision, logit, identity
+        return gate, prob, hard_decision, identity
+
+class AttentionGate(nn.Module):
+    """
+    Attention-driven gating module combining:
+    - Channel Attention (SE)
+    - Spatial Attention (CBAM-style)
+    - Final scalar gate (sigmoid or STE)
+    """
+
+    def __init__(self, in_ch, out_ch=None, stride=1, reduction=16, hidden=32, temperature=1.0):
+        super().__init__()
+        if out_ch is None:
+            out_ch = in_ch
+        
+        self.in_ch = in_ch
+        self.out_ch = out_ch
+        self.stride = stride
+        self.has_projection = (in_ch != out_ch) or (stride != 1)
+        self.temperature = temperature
+        
+        # Projection layer to match dimensions when needed
+        if self.has_projection:
+            self.projection = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_ch)
+            )
+
+        # -----------------------
+        # Channel Attention (SE)
+        # -----------------------
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.channel_fc = nn.Sequential(
+            nn.Linear(in_ch, in_ch // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(in_ch // reduction, in_ch, bias=False),
+            nn.Sigmoid()
+        )
+
+        # -----------------------
+        # Spatial Attention (CBAM)
+        # -----------------------
+        # compress across channels: max + avg pooling
+        self.spatial_compress = lambda x: torch.cat(
+            [torch.max(x, dim=1, keepdim=True)[0],
+             torch.mean(x, dim=1, keepdim=True)],
+            dim=1
+        )
+        self.spatial_conv = nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False)
+
+        # -----------------------
+        # Gate head: combine attentions → scalar probability
+        # -----------------------
+        # vector features: channel_att (C), spatial_att (H*W pooled into scalar)
+        self.fc = nn.Sequential(
+            nn.Linear(in_ch + 1, hidden),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden, 1)
+        )
+
+        # bias: start moderately closed
+        nn.init.constant_(self.fc[-1].bias, -0.7)
+
+    def forward(self, x, hard=True, return_logit=False):
+        B, C, H, W = x.shape
+        
+        # Store input for potential projection
+        identity = x
+
+        # ----------------------------------------
+        # CHANNEL ATTENTION (SE)
+        # ----------------------------------------
+        ch_vec = self.avg_pool(x).view(B, C)           # (B, C)
+        ch_att = self.channel_fc(ch_vec)               # (B, C)
+        x_ch = x * ch_att.view(B, C, 1, 1)             # channel refined feature
+
+        # ----------------------------------------
+        # SPATIAL ATTENTION (CBAM)
+        # ----------------------------------------
+        sp_in = self.spatial_compress(x_ch)            # (B, 2, H, W)
+        sp_att = torch.sigmoid(self.spatial_conv(sp_in))  # (B, 1, H, W)
+        x_sp = x_ch * sp_att                           # combined refined feature
+
+        # For gating, compress spatial map to a scalar (global importance)
+        sp_scalar = F.adaptive_avg_pool2d(sp_att, 1).view(B, 1)  # (B, 1)
+
+        # ----------------------------------------
+        # GATE HEAD
+        # ----------------------------------------
+        gate_in = torch.cat([ch_vec, sp_scalar], dim=1)  # (B, C+1)
+        logit = self.fc(gate_in)                         # (B, 1)
+        prob = torch.sigmoid(logit / self.temperature)   # scaled probability
+
+        # Straight-through binary decision
+        hard_decision = (prob > 0.5).float()
+        gate = hard_decision + prob - prob.detach() if hard else prob
+
+        if return_logit:
+            return gate, prob, hard_decision, logit, identity
+        return gate, prob, hard_decision, identity
 
 class FinalClassifier(nn.Module):
           
@@ -171,44 +407,74 @@ class SkippingMobileNetV3(nn.Module):
         
         if self.enable_gates:
             # Determine which blocks are eligible for gates based on architecture
+            # Skip block 0 (fixed OFA block) and allow all other blocks
             eligible_blocks = []
             for i, blk in enumerate(self.blocks):
+                # Skip block 0 - it's the fixed architectural block added by OFA
+                if i == 0:
+                    continue
+                    
                 try:
                     in_ch, out_ch, stride = get_block_channels(blk)
-                    # Only add gates to residual blocks (stride=1, same channels)
-                    if stride == 1 and in_ch == out_ch:
-                        eligible_blocks.append((i, in_ch))
+                    # All blocks (except block 0) are eligible - gates handle dimension changes
+                    eligible_blocks.append((i, in_ch, out_ch, stride))
                 except Exception as e:
                     print(f"Warning: Could not analyze block {i}: {e}")
                     continue
             
+            print(f"Debug: Total blocks: {len(self.blocks)}, Eligible blocks: {len(eligible_blocks)}")
+            print(f"Debug: Target sparsities config length: {len(self.target_sparsities_config)}")
+            
             # Use target_sparsities array to determine which blocks get gates
             # 0 = no gate, non-zero = create gate with that sparsity target
-            for idx, (block_idx, in_ch) in enumerate(eligible_blocks):
-                # If we have more eligible blocks than sparsity values, ignore extra blocks
-                if idx >= len(self.target_sparsities_config):
-                    break
+            gates_created = 0
+            gates_skipped_zero = 0
+            gates_failed = 0
+            
+            for idx, (block_idx, in_ch, out_ch, stride) in enumerate(eligible_blocks):
+                # Map block indices to config array positions
+                # Block 0 is skipped, so block 1 maps to config[0], block 2 to config[1], etc.
+                config_idx = block_idx - 1  # Offset by 1 since block 0 is skipped
                 
-                target_sparsity = self.target_sparsities_config[idx]
+                if config_idx >= len(self.target_sparsities_config):
+                    print(f"Debug: Block {block_idx} has no config (config_idx={config_idx} beyond array length)")
+                    continue  # No config for this block
+                
+                target_sparsity = self.target_sparsities_config[config_idx]
                 
                 # Skip if target_sparsity is 0 (no gate for this block)
                 if target_sparsity == 0:
+                    gates_skipped_zero += 1
                     continue
                 
                 # Get hidden size for this gate (use default if not provided)
-                gate_hidden_size = self.gate_hidden_sizes_config[idx] if idx < len(self.gate_hidden_sizes_config) else 32
+                gate_hidden_size = self.gate_hidden_sizes_config[config_idx] if config_idx < len(self.gate_hidden_sizes_config) else 32
                 
                 try:
-                    # Create gate for this block with per-gate hidden size
+                    # Create gate for this block with dimension handling
                     if self.gate_type == "stable":
-                        gate = StableGate(in_ch, hidden=gate_hidden_size, temperature=temperature)
+                        gate = StableGate(in_ch, out_ch=out_ch, stride=stride, 
+                                        hidden=gate_hidden_size, temperature=temperature)
+                    elif self.gate_type == "conv":
+                        gate = ConvGate(in_ch, out_ch=out_ch, stride=stride,
+                                       hidden=gate_hidden_size, temperature=temperature)
+                    elif self.gate_type == "attention":
+                        gate = AttentionGate(in_ch, out_ch=out_ch, stride=stride,
+                                           hidden=gate_hidden_size, temperature=temperature)
+                    else:
+                        raise ValueError(f"Unknown gate_type: {self.gate_type}")
 
                     self.gates.append(gate)
                     self.gate_indices.append(block_idx)
                     self.target_sparsities.append(target_sparsity)  # Store non-zero target
+                    gates_created += 1
+                    print(f"Debug: Created {self.gate_type} gate for block {block_idx} (in_ch={in_ch}, out_ch={out_ch}, stride={stride}, target={target_sparsity})")
                 except Exception as e:
                     print(f"Warning: Could not create gate for block {block_idx}: {e}")
+                    gates_failed += 1
                     continue
+            
+            print(f"Debug: Gates created: {gates_created}, Skipped (sparsity=0): {gates_skipped_zero}, Failed: {gates_failed}")
             
             if len(self.target_sparsities) > 0:
                 self.target_sparsities = torch.tensor(self.target_sparsities, dtype=torch.float32)
@@ -239,12 +505,12 @@ class SkippingMobileNetV3(nn.Module):
                 
                 # Get gate decision
                 if return_logits:
-                    gate_val, gate_prob, gate_hard, gate_logit = gate(
+                    gate_val, gate_prob, gate_hard, gate_logit, gate_input = gate(
                         x, hard=hard, return_logit=True
                     )
                     gate_logits.append(gate_logit)
                 else:
-                    gate_val, gate_prob, gate_hard = gate(
+                    gate_val, gate_prob, gate_hard, gate_input = gate(
                         x, hard=hard
                     )
                 
@@ -262,18 +528,22 @@ class SkippingMobileNetV3(nn.Module):
                         else:
                             x = block_output
                     else:
-                        # Gate closed - SKIP BLOCK ENTIRELY (true speedud)
-                        pass  # x unchanged
+                        # Gate closed - SKIP BLOCK, use projection if needed
+                        if gate.has_projection:
+                            x = gate.projection(x)
+                        # else: x unchanged (same dimensions)
                 else:
                     # BATCHED MODE: Gated residual (no actual speedup, but works for any batch size)
                     block_output = block(x)
                     
+                    # Check if dimensions match between input and output
                     if block_output.shape == x.shape:
-                        # Residual connection: output = gate * block(x) + (1-gate) * x
+                        # Same dimensions - use gated residual
                         gate_reshaped = gate_val.view(-1, 1, 1, 1)  # (B, 1, 1, 1)
                         x = gate_reshaped * block_output + (1 - gate_reshaped) * x
                     else:
-                        # Non-residual block: always use output (shape-changing blocks)
+                        # Dimensions differ - can't use true gating, always use block output
+                        # (Projection would be needed but doesn't provide compute savings in batch mode)
                         x = block_output
             else:
                 # No gate - always execute block

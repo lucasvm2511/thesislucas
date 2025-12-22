@@ -9,7 +9,6 @@ import argparse
 
 
 def load_stats_file(filepath):
-    """Load a net.stats JSON file and extract relevant metrics."""
     try:
         with open(filepath, 'r') as f:
             data = json.load(f)
@@ -20,21 +19,14 @@ def load_stats_file(filepath):
 
 
 def normalize_macs_units(raw_macs):
-    """Ensure MAC counts are expressed in millions for plotting."""
     if raw_macs is None:
         return None
-    # Stats sometimes store raw MAC counts; convert those to millions.
     if raw_macs > 1e5:
         return raw_macs / 1e6
     return raw_macs
 
 
 def extract_metrics(stats_data):
-    """
-    Extract MACs and accuracy from stats data.
-    Handles different formats (baseline vs layer skipping).
-    Note: top1 in stats is ERROR RATE, so we convert to accuracy.
-    """
     if stats_data is None:
         return None, None
     
@@ -56,10 +48,6 @@ def extract_metrics(stats_data):
 
 
 def scan_results_directory(results_dir, num_archs=30):
-    """
-    Scan the results directory for the last N architectures from the archive.
-    Returns a dictionary organized by run type.
-    """
     results_dir = Path(results_dir)
     all_results = defaultdict(list)
     
@@ -75,7 +63,6 @@ def scan_results_directory(results_dir, num_archs=30):
         if run_type in ['tempweg', 'old']:
             continue
         
-        # Load stats file
         try:
             with open(stats_file, 'r') as f:
                 data = json.load(f)
@@ -118,7 +105,6 @@ def scan_results_directory(results_dir, num_archs=30):
 
 
 def format_dataset_label(dataset):
-    """Convert dataset flag to a readable label for plot titles."""
     if dataset is None:
         return None
     dataset = dataset.strip()
@@ -129,9 +115,7 @@ def format_dataset_label(dataset):
     return dataset.upper()
 
 
-def plot_comparison(all_results, output_dir=None, title="Archive Architectures: MACs vs Accuracy", dataset_label=None):
-    """Create comparison plots for all runs."""
-    
+def plot_comparison(all_results, output_dir=None, title="Accuracy-Efficiency Trade-off of Discovered Architectures", dataset_label=None):
     if not all_results:
         print("No results found to plot!")
         return
@@ -152,13 +136,19 @@ def plot_comparison(all_results, output_dir=None, title="Archive Architectures: 
         macs_sorted = [macs_vals[i] for i in sorted_indices]
         acc_sorted = [acc_vals[i] for i in sorted_indices]
         
-        # Clean run name for legend
+        # Clean run name for legend - remove search_, dataset, seed, and 5e/10e
         legend_name = run_name.replace('search_', '').replace('dataset', '').replace('_', ' ')
+        # Remove seed patterns (seed1, seed2, etc.)
+        import re
+        legend_name = re.sub(r'\s*seed\d+', '', legend_name)
+        # Remove 5e, 10e patterns
+        legend_name = re.sub(r'\s*\d+e', '', legend_name)
+        legend_name = legend_name.strip()
         
         ax.scatter(macs_sorted, acc_sorted, label=legend_name,
                color=colors[idx], s=60, alpha=0.7, edgecolors='none')
     
-    ax.set_xlabel('MACs (Millions)', fontsize=12)
+    ax.set_xlabel('Computation (MMACs)', fontsize=12)
     ax.set_ylabel('Top-1 Accuracy (%)', fontsize=12)
     dataset_suffix = format_dataset_label(dataset_label)
     plot_title = title if dataset_suffix is None else f"{title} – {dataset_suffix}"
@@ -182,8 +172,6 @@ def plot_comparison(all_results, output_dir=None, title="Archive Architectures: 
 
 
 def plot_individual_runs(all_results, output_dir=None, dataset_label=None):
-    """Create individual plots for each run showing archive architectures."""
-    
     for run_name, results in sorted(all_results.items()):
         fig, ax = plt.subplots(figsize=(10, 6))
         
@@ -198,7 +186,7 @@ def plot_individual_runs(all_results, output_dir=None, dataset_label=None):
         # Plot
         ax.scatter(macs_sorted, acc_sorted, s=80, alpha=0.6)
         
-        ax.set_xlabel('MACs (Millions)', fontsize=12)
+        ax.set_xlabel('Computation (MMACs)', fontsize=12)
         ax.set_ylabel('Top-1 Accuracy (%)', fontsize=12)
         
         clean_name = run_name.replace('search_', '').replace('dataset', '').replace('_', ' ')
@@ -217,7 +205,6 @@ def plot_individual_runs(all_results, output_dir=None, dataset_label=None):
 
 
 def print_summary_table(all_results):
-    """Print a summary table of all results."""
     print("\n" + "="*100)
     print("SUMMARY OF ARCHIVE ARCHITECTURES")
     print("="*100)
@@ -250,8 +237,8 @@ def main():
     parser.add_argument(
         '--output_dir',
         type=str,
-        default='./results/visualizations',
-        help='Directory to save plots (default: ./results/visualizations)'
+        default='./results/analysis/architectures',
+        help='Directory to save architecture comparison plots'
     )
     parser.add_argument(
         '--no_individual',
@@ -280,7 +267,10 @@ def main():
     
     print(f"Scanning results directory: {args.results_dir}")
     print(f"Loading last {args.num_archs} architectures from each run's archive")
-    all_results = scan_results_directory(args.results_dir, num_archs=args.num_archs)
+    all_results = scan_results_directory(
+        args.results_dir, 
+        num_archs=args.num_archs
+    )
     
     # Filter out old results if not requested
     all_results = {k: v for k, v in all_results.items() if not k.startswith('old/')}

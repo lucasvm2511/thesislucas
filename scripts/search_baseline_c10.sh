@@ -2,8 +2,9 @@ python3 cnas.py \
     --sec_obj macs \
     --n_gpus 2 \
     --gpu 1 \
+    --gpu_list 0 1 \
     --n_workers 4 \
-    --n_epochs 10 \
+    --n_epochs 5 \
     --dataset cifar10 \
     --n_classes 10 \
     --data ~/datasets \
@@ -11,7 +12,7 @@ python3 cnas.py \
     --sec_predictor as \
     --supernet_path NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 \
     --pretrained \
-    --save ./results/cifar10-baseline \
+    --save ./results/baseline_cifar10_5e_seed1 \
     --iterations 30 \
     --val_split 0.1 \
     --lr 64 \

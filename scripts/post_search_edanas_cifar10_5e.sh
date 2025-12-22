@@ -8,7 +8,7 @@ iter=30
 
 python3 post_search.py \
   --supernet_path ./NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 \
-  --get_archive --n 10 --n_classes 100 \
-  --save results/search_edanas_datasetcifar100_seed1/final \
-  --expr results/search_edanas_datasetcifar100_seed1/iter_$iter.stats \
+  --get_archive --n 10 --n_classes 10 \
+  --save results/edanas_cifar10_5e_seed1/final \
+  --expr results/edanas_cifar10_5e_seed1/iter_$iter.stats \
   --first_obj $first_obj --sec_obj $sec_obj 
