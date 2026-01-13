@@ -6,3 +6,4 @@ analyze_surrogate_importance.py
 explainability.py
 scripts/post_search_layerskippingold.sh
 quantization
+tools/visualize_final_architectures.py
