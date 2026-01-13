@@ -25,7 +25,7 @@ https://github.com/mikelzc1990/nsganetv2.git and https://github.com/AI-Tech-Rese
 - `Layerskipping` contains the trainer and the utilities for Layerskipping
 
 ## Dataset
-The datasets are automatically downloaded when running the NAS search.
+The datasets are automatically downloaded when running the NAS search. Specify the dataset by running the corresponding script.
 | Dataset | Type | Train Size | Test Size | #Classes |
 |:-:|:-:|:-:|:-:|:-:|
 

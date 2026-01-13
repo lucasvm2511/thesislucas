@@ -48,6 +48,7 @@ train_with_gate_type() {
     echo "=================================================="
     
     python3 ls_train.py \
+        --confusion_matrix True \
         --model skippingmobilenetv3 \
         --dataset ${DATASET} \
         --n_classes ${N_CLASSES} \
@@ -63,7 +64,7 @@ train_with_gate_type() {
         --val_split ${VAL_SPLIT} \
         --gate_type ${gate_type} \
         --save \
-        --eval_test
+        --eval_test 
     
     echo "Completed training with ${gate_type} gate"
     echo "Results saved to: ${output_dir}"
@@ -130,60 +131,3 @@ echo "  No gate:        ${BASE_OUTPUT_DIR}/no_gate"
 echo ""
 echo "To analyze results, check the net_*.stats files in each directory"
 echo "=================================================="
-
-# Optional: Generate comparison summary
-echo ""
-echo "Generating comparison summary..."
-python3 - <<EOF
-import json
-import os
-
-base_dir = "${BASE_OUTPUT_DIR}"
-gate_types = ["stable_gate", "conv_gate", "attention_gate", "no_gate"]
-
-print("\n" + "="*80)
-print("GATE TYPE COMPARISON RESULTS")
-print("="*80)
-
-results = {}
-for gate_type in gate_types:
-    stats_files = [f for f in os.listdir(os.path.join(base_dir, gate_type)) if f.endswith('.stats')]
-    if stats_files:
-        stats_path = os.path.join(base_dir, gate_type, stats_files[0])
-        with open(stats_path, 'r') as f:
-            results[gate_type] = json.load(f)
-
-# Print comparison table
-print("\n{:<20} {:<15} {:<15} {:<15} {:<15}".format(
-    "Gate Type", "Top-1 Error (%)", "Avg MACs (M)", "Params (M)", "MAC Savings (%)"))
-print("-" * 80)
-
-for gate_type in gate_types:
-    if gate_type in results:
-        r = results[gate_type]
-        top1 = r.get('top1', 'N/A')
-        avg_macs = r.get('avg_macs', r.get('macs', 'N/A'))
-        params = r.get('params', 'N/A')
-        
-        # Calculate MAC savings if available
-        if gate_type != 'no_gate' and 'macs' in r and 'avg_macs' in r:
-            baseline_macs = r['macs']
-            actual_macs = r['avg_macs']
-            savings = ((baseline_macs - actual_macs) / baseline_macs) * 100
-        else:
-            savings = 0.0
-        
-        print("{:<20} {:<15} {:<15} {:<15} {:<15.2f}".format(
-            gate_type.replace('_', ' ').title(),
-            f"{top1:.2f}" if isinstance(top1, (int, float)) else top1,
-            f"{avg_macs:.2f}" if isinstance(avg_macs, (int, float)) else avg_macs,
-            f"{params/1e6:.2f}" if isinstance(params, (int, float)) else params,
-            savings
-        ))
-
-print("="*80)
-print("\nComparison complete! See individual directories for detailed logs.")
-EOF
-
-echo ""
-echo "Script completed successfully!"

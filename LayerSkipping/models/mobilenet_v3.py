@@ -7,7 +7,6 @@ from torchprofile import profile_macs
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(script_dir)
-# from base import BranchModel
 from ofa.imagenet_classification.networks import MobileNetV3
 from ofa.utils import MyGlobalAvgPool2d
 def get_block_channels(blk):
@@ -20,7 +19,7 @@ def get_block_channels(blk):
 
 
 class StableGate(nn.Module):
-    """Stable sigmoid-based gate with proper initialization and straight-through estimation.
+    """Stable sigmoid-based gate with straight-through estimation.
     
     Supports dimension mismatches via learnable projection when in_ch != out_ch or stride != 1.
     """
@@ -36,13 +35,6 @@ class StableGate(nn.Module):
         self.stride = stride
         self.has_projection = (in_ch != out_ch) or (stride != 1)
         
-        # Convolutional layer for spatial feature processing
-        # COMMENTED OUT: This Conv2d is 90-95% of gate overhead (in_ch × in_ch × H × W)
-        # Pool already reduces to 1×1, so spatial processing gets thrown away anyway
-        # self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
-        # self.conv_bn = nn.BatchNorm2d(in_ch)
-        # self.conv_relu = nn.ReLU(inplace=True)
-        
         # Projection layer to match dimensions when needed
         if self.has_projection:
             self.projection = nn.Sequential(
@@ -50,7 +42,6 @@ class StableGate(nn.Module):
                 nn.BatchNorm2d(out_ch)
             )
         
-        # Smaller network to reduce overhead
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.flatten = nn.Flatten()
         self.fc1 = nn.Linear(in_ch, hidden)
@@ -85,11 +76,7 @@ class StableGate(nn.Module):
         
         # Store input for potential projection
         identity = x
-        
-        # Apply convolutional layer
-        # x = self.conv(x)
-        # x = self.conv_bn(x)
-        # x = self.conv_relu(x)
+
         
         x = self.pool(x)
         x = self.flatten(x)
@@ -146,24 +133,6 @@ class ConvGate(nn.Module):
         self.has_projection = (in_ch != out_ch) or (stride != 1)
         self.temperature = temperature
 
-        # --- PREVIOUS IMPLEMENTATION (COMMENTED OUT) -------------------------
-        # # --- Spatial processing block ----------------------------------------
-        # # self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
-        # self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=3, padding=1, bias=False)
-        # self.conv_bn = nn.BatchNorm2d(in_ch)
-        # self.conv_relu = nn.ReLU(inplace=True)
-        #
-        # # --- Gate head --------------------------------------------------------
-        # self.pool = nn.AdaptiveAvgPool2d(1)
-        # self.flatten = nn.Flatten()
-        #
-        # self.fc1 = nn.Linear(in_ch, hidden)
-        # self.bn = nn.BatchNorm1d(hidden)
-        # self.relu = nn.ReLU(inplace=True)
-        # self.dropout = nn.Dropout(0.1)
-        # self.fc2 = nn.Linear(hidden, 1)
-        # ---------------------------------------------------------------------
-
         # --- Progressive spatial downsampling --------------------------------
         self.maxpool = nn.MaxPool2d(2)
         self.conv1 = nn.Conv2d(in_ch, in_ch, kernel_size=3, padding=1, bias=False)
@@ -193,16 +162,6 @@ class ConvGate(nn.Module):
 
     # ---------------------------------------------------------------------- #
     def _init_weights(self):
-        # --- PREVIOUS IMPLEMENTATION (COMMENTED OUT) -------------------------
-        # nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
-        # if self.has_projection:
-        #     nn.init.kaiming_normal_(self.projection[0].weight, mode='fan_out', nonlinearity='relu')
-        # nn.init.normal_(self.fc1.weight, 0, 0.01)
-        # nn.init.constant_(self.fc1.bias, 0.0)
-        # nn.init.normal_(self.fc2.weight, 0, 0.01)
-        # nn.init.constant_(self.fc2.bias, -0.7)  # moderately closed start
-        # ---------------------------------------------------------------------
-        
         nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')
         nn.init.kaiming_normal_(self.conv2.weight, mode='fan_out', nonlinearity='relu')
 
@@ -216,7 +175,7 @@ class ConvGate(nn.Module):
     def forward(self, x, hard=True, return_logit=False):
         identity = x
 
-        # --- Progressive downsampling: keep spatial structure longer ---------
+        # --- Progressive downsampling: 
         x = self.maxpool(x)      # Reduce by 2x
         x = self.conv1(x)
         x = self.bn1(x)
@@ -363,14 +322,6 @@ class FinalClassifier(nn.Module):
 
 
 class SkippingMobileNetV3(nn.Module):
-    """
-    MobileNetV3 with input-dependent block skipping using Gumbel Softmax.
-    
-    This model uses Gumbel Softmax to make differentiable skip decisions based on
-    the input features, allowing the model to learn which blocks to skip
-    in a truly input-dependent manner.
-    """
-
     def __init__(self, first_conv, blocks, depth, gate_type="stable", temperature=1.0, n_classes=None, enable_gates=True, gate_hidden_sizes=None, target_sparsities=None):
         """
         Initialize Skipping MobileNetV3 model with per-block target sparsities controlling gate placement.
@@ -406,10 +357,7 @@ class SkippingMobileNetV3(nn.Module):
             out_channels = blocks[-1].out_channels
         elif hasattr(blocks[-1], 'conv') and hasattr(blocks[-1].conv, 'out_channels'):
             out_channels = blocks[-1].conv.out_channels
-        # else:
-        #     # Default assumption
-        #     out_channels = 128
-        
+
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
@@ -549,12 +497,11 @@ class SkippingMobileNetV3(nn.Module):
                             x = gate.projection(x)
                         # else: x unchanged (same dimensions)
                 else:
-                    # BATCHED MODE: Gated residual (no actual speedup, but works for any batch size)
+                    # BATCHED MODE:  (no actual speedup, but works for any batch size)
                     block_output = block(x)
                     
                     # Check if dimensions match between input and output
                     if block_output.shape == x.shape:
-                        # Same dimensions - use gated residual
                         gate_reshaped = gate_val.view(-1, 1, 1, 1)  # (B, 1, 1, 1)
                         x = gate_reshaped * block_output + (1 - gate_reshaped) * x
                     else:
@@ -605,44 +552,6 @@ class SkippingMobileNetV3(nn.Module):
         
         return x, aux
     
-    # def forward_batch_true_skip(self, x, hard=True):
-    #     """
-    #     Batch inference with true skipping by processing samples individually.
-    #     Less efficient for batches but provides true computational savings.
-    #     """
-    #     batch_size = x.size(0)
-    #     all_logits = []
-    #     all_aux = []
-        
-    #     # Process each sample individually for true skipping
-    #     for i in range(batch_size):
-    #         sample = x[i:i+1]  # Keep batch dimension
-    #         logits_i, aux_i = self.forward(sample, hard=hard, true_skip_inference=True)
-    #         all_logits.append(logits_i)
-    #         all_aux.append(aux_i)
-        
-    #     # Concatenate results
-    #     logits = torch.cat(all_logits, dim=0)
-        
-    #     # Aggregate auxiliary information
-    #     if all_aux[0]["gate_values"] is not None:
-    #         gate_values = torch.cat([aux["gate_values"] for aux in all_aux], dim=0)
-    #         gate_probs = torch.cat([aux["gate_probs"] for aux in all_aux], dim=0)
-    #         gate_decisions = torch.cat([aux["gate_decisions"] for aux in all_aux], dim=0)
-            
-    #         aux = {
-    #             "gate_values": gate_values,
-    #             "gate_probs": gate_probs,
-    #             "gate_decisions": gate_decisions,
-    #             "mean_gate_prob": gate_probs.mean().item(),
-    #             "mean_gate_value": gate_values.mean().item(),
-    #             "sparsity_rate": (1 - gate_decisions.float()).mean().item(),
-    #             "num_gates": all_aux[0]["num_gates"]
-    #         }
-    #     else:
-    #         aux = all_aux[0]  # No gates case
-            
-    #     return logits, aux
     
     def calculate_macs_accurate(self, gate_decisions, input_size, device='cuda'):
         """
@@ -742,80 +651,5 @@ class SkippingMobileNetV3(nn.Module):
         return mac_usage_ratio, sparsity_rate, baseline_macs, int(real_gated_macs)
     
     
-    def _analyze_block_compatibility(self, input_shape=(1, 3, 32, 32)):
-        """
-        Analyze which blocks can be safely skipped (no dimension changes).
-        
-        Returns:
-            List of booleans indicating which blocks can be skipped
-        """
-        was_training = self.training
-        self.eval()
-        skippable_blocks = []
-        
-        with torch.no_grad():
-            device = next(self.parameters()).device
-            x = torch.randn(input_shape, device=device)
-            x = self.first_conv(x)
-            
-            for block in self.blocks:
-                shape_before = x.shape
-                x = block(x)
-                # Block can be skipped if input and output have same shape
-                skippable_blocks.append(shape_before == x.shape)
-        
-        self.train(was_training)  # Restore original mode
-        return skippable_blocks
-    
-    def get_skippable_blocks(self):
-        """Get list of blocks that can be safely skipped (cached)."""
-        if not hasattr(self, '_skippable_blocks'):
-            self._skippable_blocks = self._analyze_block_compatibility()
-        return self._skippable_blocks
-    
-    
-    def get_gate_probabilities(self, sample_input=None):
-        """
-        Get gate probabilities for each gated block.
-        
-        Args:
-            sample_input: Input tensor to compute gate probabilities.
-                         If None, returns placeholder strings.
-        
-        Returns:
-            List of gate probabilities or placeholder strings
-        """
-        if not self.enable_gates or len(self.gates) == 0:
-            return [0.0] * self.n_blocks
-        
-        if sample_input is None:
-            return ["input-dependent"] * len(self.gates)
-        
-        # Compute actual probabilities with sample input
-        gate_probs = []
-        with torch.no_grad():
-            self.eval()
-            x = self.first_conv(sample_input)
-            gate_idx = 0
-            
-            for block_idx, block in enumerate(self.blocks):
-                if block_idx in self.gate_indices:
-                    # Get gate probability
-                    gate = self.gates[gate_idx]
-                    _, gate_prob, _ = gate(x, hard=False)
-                    gate_probs.append(gate_prob.mean().item())
-                    gate_idx += 1
-                
-                # Update features for next block
-                x = block(x)
-        
-        return gate_probs
-    
     def n_branches(self):
         return 1
-
-
-
-
-
-
