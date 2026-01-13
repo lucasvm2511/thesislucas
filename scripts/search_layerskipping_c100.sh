@@ -9,7 +9,7 @@ python3 cnas.py \
     --sec_predictor as \
     --supernet_path NasSearchSpace/ofa/supernets/ofa_mbv3_d234_e346_k357_w1.0 \
     --pretrained \
-    --save results/layerskipping_cifar100_10e_att_seed1 \
+    --save results/layerskipping_cifar100_10e_conv_seed1 \
     --iterations 30 \
     --search_space skippingmobilenetv3_extended \
     --trainer_type layer_skipping \

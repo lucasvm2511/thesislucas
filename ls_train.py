@@ -47,7 +47,7 @@ if __name__ == "__main__":
     parser.add_argument("--early_stopping_tolerance", default=5, type=int, help="Number of epochs to wait before early stopping.")
     parser.add_argument("--resolution", default=32, type=int, help="Image resolution.")
     parser.add_argument("--func_constr", action='store_true', default=False, help='use functional constraints')
-    parser.add_argument("--gate_type", type=str, default='attention', choices=['stable', 'conv', 'attention'], help='Type of gate to use (stable, conv, or attention)')
+    parser.add_argument("--gate_type", type=str, default='conv', choices=['stable', 'conv', 'attention'], help='Type of gate to use (stable, conv, or attention)')
 
     # Training parameters
     parser.add_argument('--eval_test', action='store_true', default=True, help='evaluate test accuracy')

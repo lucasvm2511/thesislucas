@@ -146,11 +146,33 @@ class ConvGate(nn.Module):
         self.has_projection = (in_ch != out_ch) or (stride != 1)
         self.temperature = temperature
 
-        # --- Spatial processing block ----------------------------------------
-        # Lightweight conv path (reintroduced)
-        self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
-        self.conv_bn = nn.BatchNorm2d(in_ch)
-        self.conv_relu = nn.ReLU(inplace=True)
+        # --- PREVIOUS IMPLEMENTATION (COMMENTED OUT) -------------------------
+        # # --- Spatial processing block ----------------------------------------
+        # # self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
+        # self.conv = nn.Conv2d(in_ch, in_ch, kernel_size=3, padding=1, bias=False)
+        # self.conv_bn = nn.BatchNorm2d(in_ch)
+        # self.conv_relu = nn.ReLU(inplace=True)
+        #
+        # # --- Gate head --------------------------------------------------------
+        # self.pool = nn.AdaptiveAvgPool2d(1)
+        # self.flatten = nn.Flatten()
+        #
+        # self.fc1 = nn.Linear(in_ch, hidden)
+        # self.bn = nn.BatchNorm1d(hidden)
+        # self.relu = nn.ReLU(inplace=True)
+        # self.dropout = nn.Dropout(0.1)
+        # self.fc2 = nn.Linear(hidden, 1)
+        # ---------------------------------------------------------------------
+
+        # --- Progressive spatial downsampling --------------------------------
+        self.maxpool = nn.MaxPool2d(2)
+        self.conv1 = nn.Conv2d(in_ch, in_ch, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(in_ch)
+        self.relu1 = nn.ReLU(inplace=True)
+        
+        self.conv2 = nn.Conv2d(in_ch, in_ch, kernel_size=3, stride=2, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(in_ch)
+        self.relu2 = nn.ReLU(inplace=True)
 
         # --- Projection block -------------------------------------------------
         if self.has_projection:
@@ -159,15 +181,10 @@ class ConvGate(nn.Module):
                 nn.BatchNorm2d(out_ch)
             )
 
-        # --- Gate head --------------------------------------------------------
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.flatten = nn.Flatten()
-
-        self.fc1 = nn.Linear(in_ch, hidden)
-        self.bn = nn.BatchNorm1d(hidden)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout(0.1)
-        self.fc2 = nn.Linear(hidden, 1)
+        # --- Gate head: decision on spatial features -------------------------
+        # Final 1x1 conv to produce gate logit (keeps spatial structure)
+        self.gate_conv = nn.Conv2d(in_ch, 1, kernel_size=1, bias=True)
+        self.pool = nn.AdaptiveAvgPool2d(1)  # Collapse to scalar at the end
 
         # counter
         self.register_buffer("training_step", torch.tensor(0))
@@ -176,44 +193,43 @@ class ConvGate(nn.Module):
 
     # ---------------------------------------------------------------------- #
     def _init_weights(self):
-        nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
+        # --- PREVIOUS IMPLEMENTATION (COMMENTED OUT) -------------------------
+        # nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
+        # if self.has_projection:
+        #     nn.init.kaiming_normal_(self.projection[0].weight, mode='fan_out', nonlinearity='relu')
+        # nn.init.normal_(self.fc1.weight, 0, 0.01)
+        # nn.init.constant_(self.fc1.bias, 0.0)
+        # nn.init.normal_(self.fc2.weight, 0, 0.01)
+        # nn.init.constant_(self.fc2.bias, -0.7)  # moderately closed start
+        # ---------------------------------------------------------------------
+        
+        nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(self.conv2.weight, mode='fan_out', nonlinearity='relu')
 
         if self.has_projection:
             nn.init.kaiming_normal_(self.projection[0].weight, mode='fan_out', nonlinearity='relu')
 
-        nn.init.normal_(self.fc1.weight, 0, 0.01)
-        nn.init.constant_(self.fc1.bias, 0.0)
-
-        nn.init.normal_(self.fc2.weight, 0, 0.01)
-        nn.init.constant_(self.fc2.bias, -0.7)  # moderately closed start
+        nn.init.normal_(self.gate_conv.weight, 0, 0.01)
+        nn.init.constant_(self.gate_conv.bias, -0.7)  # moderately closed start
 
     # ---------------------------------------------------------------------- #
     def forward(self, x, hard=True, return_logit=False):
         identity = x
 
-        # --- Conv feature transformation ------------------------------------
-        x = self.conv(x)
-        x = self.conv_bn(x)
-        x = self.conv_relu(x)
+        # --- Progressive downsampling: keep spatial structure longer ---------
+        x = self.maxpool(x)      # Reduce by 2x
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        
+        x = self.conv2(x)         # Reduce by another 2x with stride
+        x = self.bn2(x)
+        x = self.relu2(x)
 
-        # --- Pool + MLP head -------------------------------------------------
-        x = self.pool(x)
-        x = self.flatten(x)
-        x = self.fc1(x)
-
-        # BN fallback for batch_size = 1
-        if x.size(0) > 1:
-            x = self.bn(x)
-        else:
-            if self.training:
-                rm = self.bn.running_mean
-                rv = self.bn.running_var
-                x = (x - rm) / torch.sqrt(rv + self.bn.eps)
-                x = x * self.bn.weight + self.bn.bias
-
-        x = self.relu(x)
-        x = self.dropout(x)
-        logit = self.fc2(x)
+        # --- Decision on spatial features ------------------------------------
+        logit_map = self.gate_conv(x)  # (B, 1, H', W') - spatial gate map
+        logit = self.pool(logit_map)   # (B, 1, 1, 1) - global average
+        logit = logit.view(logit.size(0), 1)  # (B, 1)
 
         # temperature scaling
         prob = torch.sigmoid(logit / self.temperature)
