@@ -1,8 +1,5 @@
-This repository contains the code for the thesis "Designing
-Input-Dependent
-Layer-Skipping Networks
-with Hardware-Aware
-NAS". The repository is expanded and adapted from 
+This repository contains the code for the thesis "SKIPNAS: Designing Layer-Skipping Networks via
+Compute-Aware Neural Architecture Search". The repository is expanded and adapted from 
 https://github.com/mikelzc1990/nsganetv2.git and https://github.com/AI-Tech-Research-Lab/CNAS.git
 ## Overview
 
