@@ -1,0 +1,80 @@
+2025-11-25 17:03:57,164 Running on GPU
+2025-11-25 17:03:57,164 Clearing GPU cache before training...
+2025-11-25 17:03:57,534 GPU 0 Memory: 2.77GB free out of 11.90GB total
+2025-11-25 17:03:57,536 Model: skippingmobilenetv3_extended
+2025-11-25 17:03:57,716 DATASET: cifar10
+2025-11-25 17:03:57,716 Resolution: 84
+2025-11-25 17:03:57,716 Number of classes: 100
+2025-11-25 17:03:57,716 Training epochs: 5
+2025-11-25 17:04:03,241 VAL ACCURACY BACKBONE: 108.0
+2025-11-25 17:04:06,706 TEST ACCURACY BACKBONE: 1.149999976158142
+2025-11-25 17:04:06,707 Using gate parameters (arrays):
+2025-11-25 17:04:06,707   Gate hidden sizes (first 10): [32, 16, 64, 32, 64, 32, 64, 16, 64, 64]
+2025-11-25 17:04:06,707   Target sparsities (first 10): [0.7, 0.0, 0.6, 0.8, 0.5, 0.8, 0.0, 0.7, 0.0, 0.7]
+2025-11-25 17:04:06,707 Number of gates to create (non-zero targets): 14
+2025-11-25 17:04:07,306 Baseline MACs: 46.11M
+2025-11-25 17:04:07,307 Start training of the Skipping MobileNetV3...
+2025-11-25 17:04:07,310 Starting SkippingMobileNetV3 training for 5 epochs...
+2025-11-25 17:04:07,310 Gate strategy: Soft gates 50% of time (no warmup phase)
+2025-11-25 17:04:07,311 Number of gates: 9
+2025-11-25 17:04:07,311 Per-gate target sparsities: [0.699999988079071, 0.6000000238418579, 0.800000011920929, 0.5, 0.800000011920929, 0.699999988079071, 0.699999988079071, 0.699999988079071, 0.6000000238418579]
+2025-11-25 17:05:23,961 Epoch 1/5: Train Loss: 1.1645, Train Acc: 67.31%, Val Loss: 0.8402, Val Acc: 76.99%, Sparsity Loss: 0.0149, Gate Mode: Soft
+2025-11-25 17:05:23,961   Gates: Sparsity=87.01%, Est. MAC Savings=56.0%
+2025-11-25 17:05:23,961   ⚠️  HIGH SPARSITY WARNING: 87.0% - Gates may be collapsing!
+2025-11-25 17:06:43,166 Epoch 2/5: Train Loss: 0.7945, Train Acc: 73.91%, Val Loss: 0.4529, Val Acc: 85.18%, Sparsity Loss: 0.0263, Gate Mode: Hard
+2025-11-25 17:06:43,166   Gates: Sparsity=53.10%, Est. MAC Savings=34.8%
+2025-11-25 17:08:01,844 Epoch 3/5: Train Loss: 0.5936, Train Acc: 79.80%, Val Loss: 0.3814, Val Acc: 86.47%, Sparsity Loss: 0.0078, Gate Mode: Soft
+2025-11-25 17:08:01,844   Gates: Sparsity=89.99%, Est. MAC Savings=60.3%
+2025-11-25 17:08:01,844   ⚠️  HIGH SPARSITY WARNING: 90.0% - Gates may be collapsing!
+2025-11-25 17:09:22,065 Epoch 4/5: Train Loss: 0.5468, Train Acc: 82.12%, Val Loss: 0.2641, Val Acc: 91.08%, Sparsity Loss: 0.0262, Gate Mode: Hard
+2025-11-25 17:09:22,066   Gates: Sparsity=66.84%, Est. MAC Savings=44.4%
+2025-11-25 17:10:14,010 Epoch 5/5: Train Loss: 0.4596, Train Acc: 84.36%, Val Loss: 0.2409, Val Acc: 91.81%, Sparsity Loss: 0.0111, Gate Mode: Hard
+2025-11-25 17:10:14,011   Gates: Sparsity=68.34%, Est. MAC Savings=45.6%
+2025-11-25 17:10:14,011 SkippingMobileNetV3 training completed!
+2025-11-25 17:10:14,011 Best validation accuracy: 91.81%
+2025-11-25 17:10:14,019 Evaluating skipping model...
+2025-11-25 17:10:16,434 Skipping model evaluation - Sparsity: 68.00%, MAC Savings: 45.2%
+2025-11-25 17:10:16,435 Baseline MACs: 46.11M, Gated MACs: 25.25M
+2025-11-25 17:10:16,435 Results saved to results/search_layerskippingextendedpr5_datasetcifar10_seed1/iter_0/net_54/net_54.stats
+2025-11-25 17:10:16,435 Cleaning up GPU memory...
+2025-11-25 17:10:16,572 GPU memory cleanup completed
+2025-11-28 11:02:19,164 Running on GPU
+2025-11-28 11:02:19,165 Clearing GPU cache before training...
+2025-11-28 11:02:19,459 GPU 0 Memory: 11.76GB free out of 11.90GB total
+2025-11-28 11:02:19,461 Model: skippingmobilenetv3_extended
+2025-11-28 11:02:19,632 DATASET: cifar10
+2025-11-28 11:02:19,632 Resolution: 84
+2025-11-28 11:02:19,632 Number of classes: 100
+2025-11-28 11:02:19,632 Training epochs: 5
+2025-11-28 11:02:23,279 VAL ACCURACY BACKBONE: 108.0
+2025-11-28 11:02:25,125 TEST ACCURACY BACKBONE: 1.149999976158142
+2025-11-28 11:02:25,125 Using gate parameters (arrays):
+2025-11-28 11:02:25,125   Gate hidden sizes (first 10): [32, 16, 64, 32, 64, 32, 64, 16, 64, 64]
+2025-11-28 11:02:25,125   Target sparsities (first 10): [0.7, 0.0, 0.6, 0.8, 0.5, 0.8, 0.0, 0.7, 0.0, 0.7]
+2025-11-28 11:02:25,125 Number of gates to create (non-zero targets): 14
+2025-11-28 11:02:25,621 Baseline MACs: 46.11M
+2025-11-28 11:02:25,621 Start training of the Skipping MobileNetV3...
+2025-11-28 11:02:25,625 Starting SkippingMobileNetV3 training for 5 epochs...
+2025-11-28 11:02:25,625 Gate strategy: Soft gates 50% of time (no warmup phase)
+2025-11-28 11:02:25,625 Number of gates: 9
+2025-11-28 11:02:25,625 Per-gate target sparsities: [0.699999988079071, 0.6000000238418579, 0.800000011920929, 0.5, 0.800000011920929, 0.699999988079071, 0.699999988079071, 0.699999988079071, 0.6000000238418579]
+2025-11-28 11:03:01,849 Epoch 1/5: Train Loss: 1.1645, Train Acc: 67.31%, Val Loss: 0.8402, Val Acc: 76.99%, Sparsity Loss: 0.0149, Gate Mode: Soft
+2025-11-28 11:03:01,849   Gates: Sparsity=87.01%, Est. MAC Savings=56.0%
+2025-11-28 11:03:01,850   ⚠️  HIGH SPARSITY WARNING: 87.0% - Gates may be collapsing!
+2025-11-28 11:03:38,195 Epoch 2/5: Train Loss: 0.7945, Train Acc: 73.91%, Val Loss: 0.4529, Val Acc: 85.18%, Sparsity Loss: 0.0263, Gate Mode: Hard
+2025-11-28 11:03:38,195   Gates: Sparsity=53.10%, Est. MAC Savings=34.8%
+2025-11-28 11:04:14,652 Epoch 3/5: Train Loss: 0.5936, Train Acc: 79.80%, Val Loss: 0.3814, Val Acc: 86.47%, Sparsity Loss: 0.0078, Gate Mode: Soft
+2025-11-28 11:04:14,652   Gates: Sparsity=89.99%, Est. MAC Savings=60.3%
+2025-11-28 11:04:14,652   ⚠️  HIGH SPARSITY WARNING: 90.0% - Gates may be collapsing!
+2025-11-28 11:04:51,184 Epoch 4/5: Train Loss: 0.5468, Train Acc: 82.12%, Val Loss: 0.2641, Val Acc: 91.08%, Sparsity Loss: 0.0262, Gate Mode: Hard
+2025-11-28 11:04:51,184   Gates: Sparsity=66.84%, Est. MAC Savings=44.4%
+2025-11-28 11:05:27,760 Epoch 5/5: Train Loss: 0.4596, Train Acc: 84.36%, Val Loss: 0.2409, Val Acc: 91.81%, Sparsity Loss: 0.0111, Gate Mode: Hard
+2025-11-28 11:05:27,760   Gates: Sparsity=68.34%, Est. MAC Savings=45.6%
+2025-11-28 11:05:27,760 SkippingMobileNetV3 training completed!
+2025-11-28 11:05:27,760 Best validation accuracy: 91.81%
+2025-11-28 11:05:27,768 Evaluating skipping model...
+2025-11-28 11:05:30,320 Skipping model evaluation - Sparsity: 68.00%, MAC Savings: 45.2%
+2025-11-28 11:05:30,320 Baseline MACs: 46.11M, Gated MACs: 25.25M
+2025-11-28 11:05:30,321 Results saved to results/layerskipping_cifar10_5e_seed1/iter_0/net_54/net_54.stats
+2025-11-28 11:05:30,321 Cleaning up GPU memory...
+2025-11-28 11:05:30,460 GPU memory cleanup completed

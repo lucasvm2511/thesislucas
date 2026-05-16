@@ -1,0 +1,49 @@
+2025-11-22 22:36:34,804 Running on GPU
+2025-11-22 22:36:34,804 Clearing GPU cache before training...
+2025-11-22 22:36:35,093 GPU 0 Memory: 6.00GB free out of 11.90GB total
+2025-11-22 22:36:35,095 Model: skippingmobilenetv3_extended
+2025-11-22 22:36:35,266 DATASET: cifar100
+2025-11-22 22:36:35,266 Resolution: 72
+2025-11-22 22:36:35,266 Number of classes: 100
+2025-11-22 22:36:35,266 Training epochs: 10
+2025-11-22 22:36:38,576 VAL ACCURACY BACKBONE: 89.0
+2025-11-22 22:36:40,156 TEST ACCURACY BACKBONE: 1.0099999904632568
+2025-11-22 22:36:40,156 Using gate parameters (arrays):
+2025-11-22 22:36:40,156   Gate hidden sizes (first 10): [16, 32, 64, 32, 64, 32, 64, 16, 64, 64]
+2025-11-22 22:36:40,156   Target sparsities (first 10): [0.6, 0, 0.5, 0.5, 0.5, 0, 0, 0.6, 0, 0.6]
+2025-11-22 22:36:40,156 Number of gates to create (non-zero targets): 12
+2025-11-22 22:36:40,614 Baseline MACs: 33.97M
+2025-11-22 22:36:40,614 Start training of the Skipping MobileNetV3...
+2025-11-22 22:36:40,617 Starting SkippingMobileNetV3 training for 10 epochs...
+2025-11-22 22:36:40,618 Gate strategy: Soft gates 50% of time (no warmup phase)
+2025-11-22 22:36:40,618 Number of gates: 8
+2025-11-22 22:36:40,618 Per-gate target sparsities: [0.6000000238418579, 0.5, 0.5, 0.5, 0.6000000238418579, 0.6000000238418579, 0.6000000238418579, 0.6000000238418579]
+2025-11-22 22:37:08,456 Epoch 1/10: Train Loss: 1.7536, Train Acc: 53.33%, Val Loss: 1.3953, Val Acc: 60.94%, Sparsity Loss: 0.0048, Gate Mode: Soft
+2025-11-22 22:37:08,456   Gates: Sparsity=64.68%, Est. MAC Savings=40.9%
+2025-11-22 22:37:36,210 Epoch 2/10: Train Loss: 1.1615, Train Acc: 66.69%, Val Loss: 1.1710, Val Acc: 66.44%, Sparsity Loss: 0.0244, Gate Mode: Hard
+2025-11-22 22:37:36,210   Gates: Sparsity=34.65%, Est. MAC Savings=20.9%
+2025-11-22 22:38:03,866 Epoch 3/10: Train Loss: 0.8547, Train Acc: 73.94%, Val Loss: 1.1589, Val Acc: 67.38%, Sparsity Loss: 0.0047, Gate Mode: Soft
+2025-11-22 22:38:03,867   Gates: Sparsity=68.31%, Est. MAC Savings=43.2%
+2025-11-22 22:38:31,816 Epoch 4/10: Train Loss: 0.7665, Train Acc: 77.18%, Val Loss: 1.0519, Val Acc: 70.92%, Sparsity Loss: 0.0315, Gate Mode: Hard
+2025-11-22 22:38:31,816   Gates: Sparsity=51.14%, Est. MAC Savings=30.8%
+2025-11-22 22:38:59,592 Epoch 5/10: Train Loss: 0.5260, Train Acc: 83.16%, Val Loss: 1.0919, Val Acc: 70.42%, Sparsity Loss: 0.0028, Gate Mode: Soft
+2025-11-22 22:38:59,592   Gates: Sparsity=69.95%, Est. MAC Savings=43.4%
+2025-11-22 22:39:27,572 Epoch 6/10: Train Loss: 0.4761, Train Acc: 85.75%, Val Loss: 1.0465, Val Acc: 73.00%, Sparsity Loss: 0.0415, Gate Mode: Hard
+2025-11-22 22:39:27,572   Gates: Sparsity=53.58%, Est. MAC Savings=31.0%
+2025-11-22 22:39:55,420 Epoch 7/10: Train Loss: 0.2792, Train Acc: 90.99%, Val Loss: 1.0650, Val Acc: 73.75%, Sparsity Loss: 0.0027, Gate Mode: Soft
+2025-11-22 22:39:55,420   Gates: Sparsity=71.03%, Est. MAC Savings=43.9%
+2025-11-22 22:40:23,263 Epoch 8/10: Train Loss: 0.2838, Train Acc: 92.20%, Val Loss: 1.0635, Val Acc: 74.57%, Sparsity Loss: 0.0465, Gate Mode: Hard
+2025-11-22 22:40:23,263   Gates: Sparsity=55.78%, Est. MAC Savings=32.9%
+2025-11-22 22:40:51,197 Epoch 9/10: Train Loss: 0.1447, Train Acc: 95.70%, Val Loss: 1.0403, Val Acc: 75.42%, Sparsity Loss: 0.0051, Gate Mode: Soft
+2025-11-22 22:40:51,198   Gates: Sparsity=72.14%, Est. MAC Savings=44.8%
+2025-11-22 22:40:51,198   ⚠️  OVERFITTING WARNING: Train-Val gap = 20.3%
+2025-11-22 22:41:18,837 Epoch 10/10: Train Loss: 0.2233, Train Acc: 95.33%, Val Loss: 1.0081, Val Acc: 76.37%, Sparsity Loss: 0.0748, Gate Mode: Hard
+2025-11-22 22:41:18,837   Gates: Sparsity=52.34%, Est. MAC Savings=32.9%
+2025-11-22 22:41:18,837 SkippingMobileNetV3 training completed!
+2025-11-22 22:41:18,837 Best validation accuracy: 76.37%
+2025-11-22 22:41:18,845 Evaluating skipping model...
+2025-11-22 22:41:20,875 Skipping model evaluation - Sparsity: 52.38%, MAC Savings: 32.8%
+2025-11-22 22:41:20,876 Baseline MACs: 33.97M, Gated MACs: 22.84M
+2025-11-22 22:41:20,876 Results saved to results/search_layerskippingextendedpr_datasetcifar100_seed1/iter_3/net_4/net_4.stats
+2025-11-22 22:41:20,876 Cleaning up GPU memory...
+2025-11-22 22:41:21,008 GPU memory cleanup completed

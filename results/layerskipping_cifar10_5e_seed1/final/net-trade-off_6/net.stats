@@ -1,0 +1,1 @@
+{"backbone_top1": 98.77999877929688, "backbone_params": [2625790], "backbone_macs": [39.538512], "avg_macs": 17.329929, "top1": 10.960000000000003, "params": 2625790, "macs": 39.538512}
